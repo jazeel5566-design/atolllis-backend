@@ -167,6 +167,8 @@ model Specimen {
   category       String    // snapshot of the test category this tube was drawn for
   bottleType     String    // matches the test's Specimen Type in the Test Catalog
   status         String    @default("collected") // 'collected' -> 'received' | 'rejected'
+  collectedAt    DateTime  @default(now()) // when THIS tube was drawn — distinct from Order.collectedAt,
+  collectedBy    String?   // which is fixed at the first-ever collection and never changes after a recollect
   acceptedAt     DateTime?
   acceptedBy     String?
   rejectionReason String?

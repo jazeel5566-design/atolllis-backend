@@ -74,9 +74,6 @@ router.post('/import', async (req, res) => {
 
   const existing = await prisma.order.findUnique({ where: { memoNumber }, include: { tests: true, patient: true, specimens: true } });
   if (existing) {
-    if (existing.sampleStatus) {
-      return res.status(409).json({ error: `Memo ${memoNumber} has already been collected.`, order: mapOrderForViewer(existing, req.user.facilityId) });
-    }
     return res.json(mapOrderForViewer(existing, req.user.facilityId));
   }
 
@@ -131,8 +128,8 @@ router.delete('/:id', async (req, res) => {
 // ---------- 2. Sample Collection (select tests, generate one barcode per specimen bottle) ----------
 router.post('/:id/collect', async (req, res) => {
   const { id } = req.params;
-  const { selectedCodes, collectedBy } = req.body || {};
-  if (!collectedBy) return res.status(400).json({ error: 'collectedBy is required' });
+  const { selectedCodes } = req.body || {};
+  const collectedBy = req.user.name; // the logged-in technologist collecting — not client-supplied
 
   const order = await prisma.order.findUnique({ where: { id }, include: { tests: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
@@ -181,7 +178,7 @@ router.post('/:id/collect', async (req, res) => {
     const specimenNumber = generateSpecimenNumber(letterFor(category), dailySeq[category], now);
 
     const specimen = await prisma.specimen.create({
-      data: { id: uid('SPC'), specimenNumber, orderId: id, category, bottleType, status: 'collected' },
+      data: { id: uid('SPC'), specimenNumber, orderId: id, category, bottleType, status: 'collected', collectedAt: now, collectedBy },
     });
     await Promise.all(tests.map(t => {
       const tc = catalogTests.find(c => c.code === t.code);
@@ -199,6 +196,70 @@ router.post('/:id/collect', async (req, res) => {
   await Promise.all(order.tests.filter(t => !selected.has(t.code)).map(t =>
     prisma.orderTest.update({ where: { id: t.id }, data: { status: 'deselected' } })
   ));
+
+  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  res.json(mapOrderForViewer(full, req.user.facilityId));
+});
+
+// Redraw specimens for tests that were rejected at acceptance. The order's own collectedAt/
+// collectedBy (the very first draw for this memo) never changes — only the new specimen(s) get a
+// fresh collection timestamp and collector, same as a normal collect, tracked per-specimen.
+router.post('/:id/recollect', async (req, res) => {
+  const { id } = req.params;
+  const { testCodes } = req.body || {};
+  const collectedBy = req.user.name;
+  if (!testCodes || !testCodes.length) return res.status(400).json({ error: 'testCodes is required' });
+
+  const order = await prisma.order.findUnique({ where: { id }, include: { tests: true } });
+  if (!order) return res.status(404).json({ error: 'Not found' });
+  if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
+
+  const targetTests = order.tests.filter(t => testCodes.includes(t.code) && t.status === 'rejected');
+  if (!targetTests.length) return res.status(409).json({ error: 'None of the given tests are currently rejected.' });
+
+  const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId } });
+  const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: targetTests.map(t => t.code) } } });
+  const categories = await prisma.testCategory.findMany();
+  const letterFor = (categoryName) => {
+    const match = categories.find(c => c.name === categoryName);
+    return match ? match.letter : (categoryName || 'X').trim().charAt(0).toUpperCase() || 'X';
+  };
+
+  const groups = {};
+  targetTests.forEach(t => {
+    const tc = catalogTests.find(c => c.code === t.code);
+    const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
+    const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
+    const key = `${category}||${bottleType}`;
+    (groups[key] = groups[key] || { category, bottleType, tests: [] }).tests.push(t);
+  });
+
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dailySeq = {};
+
+  for (const key of Object.keys(groups)) {
+    const { category, bottleType, tests } = groups[key];
+    if (dailySeq[category] === undefined) {
+      dailySeq[category] = await prisma.specimen.count({ where: { category, createdAt: { gte: startOfDay } } });
+    }
+    dailySeq[category] += 1;
+    const specimenNumber = generateSpecimenNumber(letterFor(category), dailySeq[category], now);
+
+    // A brand-new specimen row — the old rejected one stays in place, untouched, as the record of
+    // what happened to the original draw.
+    const specimen = await prisma.specimen.create({
+      data: { id: uid('SPC'), specimenNumber, orderId: id, category, bottleType, status: 'collected', collectedAt: now, collectedBy },
+    });
+    await Promise.all(tests.map(t => {
+      const tc = catalogTests.find(c => c.code === t.code);
+      const needsRef = tc ? needsReferral(tc, facility) : false;
+      return prisma.orderTest.update({
+        where: { id: t.id },
+        data: { status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id },
+      });
+    }));
+  }
 
   const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
   res.json(mapOrderForViewer(full, req.user.facilityId));

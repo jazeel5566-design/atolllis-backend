@@ -298,7 +298,8 @@ const api = {
   orders: (stage) => apiRequest(`/orders${stage?('?stage='+stage):''}`),
   order: (id) => apiRequest(`/orders/${id}`),
   cancelMemo: (id) => apiRequest(`/orders/${id}`, {method:'DELETE'}),
-  collect: (id, selectedCodes, collectedBy) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes, collectedBy}}),
+  collect: (id, selectedCodes) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes}}),
+  recollect: (id, testCodes) => apiRequest(`/orders/${id}/recollect`, {method:'POST', body:{testCodes}}),
   refer: (id, referredByName) => apiRequest(`/orders/${id}/refer`, {method:'POST', body:{referredByName}}),
   receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
   getSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}`),
@@ -590,6 +591,7 @@ let collectionOpenOrder = null;
 let memoFetchStatus = null;
 let memoFetchError = '';
 let pendingCollect = null;
+let pendingReprintGroups = null;
 
 async function viewCollectionPage(){
   const f = fac(session.user.facilityId);
@@ -671,44 +673,82 @@ function renderReferralPendingBlock(orders, f){
 }
 function renderCollectionPanel(o, f){
   const p = o.patient;
-  return `<div class="card">
+  const header = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
       <div>
         <h2 style="margin-bottom:2px;">${escapeHtml(p?.name||'Unknown')}</h2>
         <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')} · ID No. ${escapeHtml(p?.idNumber||'—')} · ${p?calcAge(p.dob):'?'}y · ${p?.sex||'—'}<br>${escapeHtml(p?.address||'')}</div>
         <div class="muted" style="font-size:11.5px;margin-top:4px;">Memo ${escapeHtml(o.memoNumber)} (${o.memoSource}) · Ordered by ${escapeHtml(o.orderedBy)} · ${fmtDate(o.createdAt)}</div>
+        ${o.sampleStatus? `<div class="muted" style="font-size:11.5px;">Collected by ${escapeHtml(o.collectedBy||'—')}, ${fmtDate(o.collectedAt)}</div>`:''}
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-danger btn-sm" onclick="cancelMemo('${o.id}')">Cancel Memo</button>
-        <button class="btn btn-outline btn-sm" onclick="collectionOpenOrderId=null;render();">← Back to list</button>
+        ${!o.sampleStatus? `<button class="btn btn-danger btn-sm" onclick="cancelMemo('${o.id}')">Cancel Memo</button>`:''}
+        <button class="btn btn-outline btn-sm" onclick="collectionOpenOrderId=null;collectionOpenOrder=null;render();">← Back to list</button>
       </div>
-    </div>
+    </div>`;
+
+  if(!o.sampleStatus){
+    // Not yet collected — selectable table, Collect Sample generates the barcodes.
+    return `<div class="card">${header}
+      <div class="field" style="margin-top:14px;">
+        <label>Tests — selected by default; deselect any not being collected now</label>
+        <div class="actions-row" style="margin-bottom:8px;">
+          <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=true);">Select All</button>
+          <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=false);">Deselect All</button>
+        </div>
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
+          <table>
+            <thead><tr><th></th><th>Test Code</th><th>Test Name</th><th>Category</th><th>Sample Type</th></tr></thead>
+            <tbody>
+              ${o.tests.map(t=>{
+                const tc = test(t.code);
+                const ref = tc ? needsReferralClient(tc, f) : false;
+                return `<tr>
+                  <td><input type="checkbox" name="collectTest" value="${t.code}" checked></td>
+                  <td class="mono">${t.code}</td>
+                  <td>${escapeHtml(t.name)}${ref? `<div class="muted" style="font-size:11px;">Requires referral</div>`:''}</td>
+                  <td>${escapeHtml(tc?.category||'—')}</td>
+                  <td>${escapeHtml(tc?.specimenType||'—')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect Sample</button></div>
+    </div>`;
+  }
+
+  // Already collected — read-only status view. Reprint existing labels, or recollect anything rejected.
+  const rejectedTests = o.tests.filter(t=>t.status==='rejected');
+  const activeSpecimens = (o.specimens||[]).filter(s=>s.status!=='rejected');
+  const rows = o.tests.filter(t=>t.status!=='deselected').map(t=>{
+    const tc = test(t.code);
+    const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
+    const meta = STATUS_META[t.visibleStatus||t.status] || {label:t.status, cls:'pill-grey'};
+    return `<tr>
+      <td class="mono">${t.code}</td>
+      <td>${escapeHtml(t.name)}</td>
+      <td>${escapeHtml(tc?.category||'—')}</td>
+      <td>${escapeHtml(tc?.specimenType||'—')}</td>
+      <td class="mono muted" style="font-size:11px;">${spec?escapeHtml(spec.specimenNumber):'—'}</td>
+      <td><span class="pill ${meta.cls}">${meta.label}</span></td>
+    </tr>`;
+  }).join('');
+  return `<div class="card">${header}
     <div class="field" style="margin-top:14px;">
-      <label>Tests — selected by default; deselect any not being collected now</label>
-      <div class="actions-row" style="margin-bottom:8px;">
-        <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=true);">Select All</button>
-        <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=false);">Deselect All</button>
-      </div>
+      <label>Tests on this memo</label>
       <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
         <table>
-          <thead><tr><th></th><th>Test Code</th><th>Test Name</th><th>Category</th><th>Sample Type</th></tr></thead>
-          <tbody>
-            ${o.tests.map(t=>{
-              const tc = test(t.code);
-              const ref = tc ? needsReferralClient(tc, f) : false;
-              return `<tr>
-                <td><input type="checkbox" name="collectTest" value="${t.code}" checked></td>
-                <td class="mono">${t.code}</td>
-                <td>${escapeHtml(t.name)}${ref? `<div class="muted" style="font-size:11px;">Requires referral</div>`:''}</td>
-                <td>${escapeHtml(tc?.category||'—')}</td>
-                <td>${escapeHtml(tc?.specimenType||'—')}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
+          <thead><tr><th>Test Code</th><th>Test Name</th><th>Category</th><th>Sample Type</th><th>Specimen No.</th><th>Status</th></tr></thead>
+          <tbody>${rows}</tbody>
         </table>
       </div>
     </div>
-    <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect Sample</button></div>
+    <div class="actions-row">
+      ${activeSpecimens.length? `<button class="btn btn-teal" onclick="openReprintDialog()">Reprint Barcode</button>`:''}
+      ${rejectedTests.length? `<button class="btn btn-danger" onclick="openRecollectDialog()">Recollect Rejected Test(s)</button>`:''}
+    </div>
   </div>`;
 }
 // Client-side mirror of the backend's tier check, just for the "Requires referral" hint here —
@@ -725,14 +765,11 @@ async function fetchMemo(){
   try{
     const order = await api.importMemo(num);
     memoFetchStatus = null; memoFetchError = '';
-    if(order.sampleStatus){
-      showToast(`Memo ${num} has already been collected.`);
-      await render();
-      return;
-    }
-    collectionOpenOrderId = order.id;
+    collectionOpenOrderId = order.id; collectionOpenOrder = order;
     await render();
-    showToast(`Memo ${order.memoNumber} fetched from ${order.memoSource} — proceed to collect.`);
+    showToast(order.sampleStatus
+      ? `Memo ${order.memoNumber} already collected — showing current status.`
+      : `Memo ${order.memoNumber} fetched from ${order.memoSource} — proceed to collect.`);
   }catch(e){
     memoFetchStatus = 'error'; memoFetchError = e.message;
     await render();
@@ -748,18 +785,19 @@ async function cancelMemo(orderId){
     showToast('Memo cancelled.');
   });
 }
-function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'bottle'; }
-
 // Groups selected tests by (Category, Specimen Type) — matching the backend exactly, since that's
 // the same key used there to decide how many distinct barcode labels this collection requires.
+function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'bottle'; }
 function openPrintDialog(){
   const selected = Array.from(document.querySelectorAll('input[name="collectTest"]:checked')).map(el=>el.value);
   if(!selected.length && !confirm('No tests selected — collect an empty sample anyway?')) return;
-  const collectedBy = prompt('Phlebotomist / technologist collecting this sample:');
-  if(!collectedBy || !collectedBy.trim()) return;
-
+  buildPendingCollect(selected, 'collect');
+  if(!Object.keys(pendingCollect.groups).length){ confirmCollectAndPrint(); return; } // nothing selected — skip straight to collect
+  renderPrintDialog();
+}
+function buildPendingCollect(codes, mode){
   const groups = {}; // "category||bottleType" -> {category, bottleType, tests:[{code,name}]}
-  selected.forEach(code=>{
+  codes.forEach(code=>{
     const tc = test(code);
     const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
     const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
@@ -767,13 +805,11 @@ function openPrintDialog(){
     const testName = (collectionOpenOrder.tests.find(t=>t.code===code)||{}).name || code;
     (groups[key] = groups[key] || {category, bottleType, tests:[]}).tests.push({code, name: testName});
   });
-
-  pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: selected, collectedBy: collectedBy.trim(), groups };
-  if(!Object.keys(groups).length){ confirmCollectAndPrint(); return; } // nothing selected — skip straight to collect
-  renderPrintDialog();
+  pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: codes, groups, mode };
 }
 function renderPrintDialog(){
-  const { groups } = pendingCollect;
+  const { groups, mode } = pendingCollect;
+  const isRecollect = mode==='recollect';
   const rows = Object.keys(groups).sort().map(key=>{
     const { category, bottleType, tests } = groups[key];
     return `<div class="test-row">
@@ -787,28 +823,32 @@ function renderPrintDialog(){
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
     <div class="modal" style="max-width:480px;">
-      <div class="modal-head"><h2>Print Barcode Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <p class="muted" style="font-size:12.5px;margin-top:-6px;">One barcode per Category + Specimen Type combination, based on each test's Test Catalog settings. Set how many copies of each to print.</p>
+      <div class="modal-head"><h2>${isRecollect?'Recollect & Print':'Print Barcode Labels'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">${isRecollect? 'This generates a fresh barcode for the rejected test(s) — the original specimen record stays on file as rejected.' : 'One barcode per Category + Specimen Type combination, based on each test\'s Test Catalog settings.'} Set how many copies of each to print.</p>
       <div class="checklist" style="max-height:none;">${rows}</div>
-      <div class="actions-row"><button class="btn btn-teal" onclick="confirmCollectAndPrint()">Collect & Print</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="confirmCollectAndPrint()">${isRecollect?'Recollect & Print':'Collect & Print'}</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
     </div>
   </div>`;
 }
 async function confirmCollectAndPrint(){
-  const { orderId, selectedCodes, collectedBy, groups } = pendingCollect;
+  const { orderId, selectedCodes, groups, mode } = pendingCollect;
   const quantities = {};
   Object.keys(groups).forEach(key=>{
     const el = document.getElementById(`qty_${slugify(key)}`);
     quantities[key] = el ? Math.max(0, parseInt(el.value,10)||0) : 1;
   });
   await withErrorToast(async ()=>{
-    const order = await api.collect(orderId, selectedCodes, collectedBy);
+    const order = mode==='recollect' ? await api.recollect(orderId, selectedCodes) : await api.collect(orderId, selectedCodes);
     collectionOpenOrderId = null; collectionOpenOrder = null;
     await render();
     printLabelsForOrder(order, groups, quantities);
-    showToast(`Sample collected — ${order.specimens.length} specimen(s) barcoded.`);
+    showToast(mode==='recollect' ? 'Sample recollected — new specimen(s) barcoded.' : `Sample collected — ${order.specimens.length} specimen(s) barcoded.`);
   });
 }
+// Looks up each group's barcode via the exact specimen a test now belongs to (not by category +
+// bottle type alone) — important after a recollect, where an old rejected specimen and a brand new
+// one can share the same category/bottle type, and a plain string match would risk grabbing the
+// wrong (rejected) barcode.
 function printLabelsForOrder(o, groups, quantities){
   const p = o.patient;
   const keys = Object.keys(groups);
@@ -818,9 +858,8 @@ function printLabelsForOrder(o, groups, quantities){
   }else{
     keys.sort().forEach(key=>{
       const { category, bottleType, tests } = groups[key];
-      // Each (category, bottle type) pair got its own real specimen barcode from the backend —
-      // that's the number an analyzer reads and results come back tagged with.
-      const specimen = (o.specimens||[]).find(s=>s.category===category && s.bottleType===bottleType);
+      const firstTest = tests[0] ? o.tests.find(t=>t.code===tests[0].code) : null;
+      const specimen = firstTest ? (o.specimens||[]).find(s=>s.id===firstTest.specimenId) : null;
       const specimenNumber = specimen ? specimen.specimenNumber : '—';
       const qty = quantities[key] ?? 1;
       const codes = tests.map(t=>t.code).join(', ');
@@ -846,6 +885,64 @@ function renderOneLabel(p, specimenNumber, category, bottleType, codes){
     ${barcodeSvg(specimenNumber)}
     <div class="mono" style="text-align:center;font-size:12px;letter-spacing:1px;margin-top:2px;">${escapeHtml(specimenNumber)}</div>
   </div>`;
+}
+
+/* ---------- Reprint (no data change) and Recollect (rejected tests only) ---------- */
+function openReprintDialog(){
+  const o = collectionOpenOrder;
+  const activeSpecimens = (o.specimens||[]).filter(s=>s.status!=='rejected');
+  if(!activeSpecimens.length){ showToast('No active specimens to reprint.'); return; }
+  const groups = {};
+  activeSpecimens.forEach(s=>{
+    const tests = o.tests.filter(t=>t.specimenId===s.id).map(t=>({code:t.code, name:t.name}));
+    groups[s.id] = { category:s.category, bottleType:s.bottleType, tests, specimenNumber:s.specimenNumber };
+  });
+  pendingReprintGroups = groups;
+  const rows = Object.keys(groups).sort().map(key=>{
+    const { category, bottleType, tests, specimenNumber } = groups[key];
+    return `<div class="test-row">
+      <div><b>${escapeHtml(category)} — ${escapeHtml(bottleType)}</b> <span class="mono muted" style="font-size:11px;">${escapeHtml(specimenNumber)}</span>
+        <div class="muted" style="font-size:11px;">${tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ')}</div>
+      </div>
+      <div><label class="muted" style="font-size:11px;display:block;">Copies</label>
+        <input type="number" min="0" value="1" id="rqty_${slugify(key)}" style="width:80px;"></div>
+    </div>`;
+  }).join('');
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-head"><h2>Reprint Barcode Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Nothing is recorded by reprinting — the original collection time and staff stay exactly as they are.</p>
+      <div class="checklist" style="max-height:none;">${rows}</div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="confirmReprint()">Print</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+function confirmReprint(){
+  const groups = pendingReprintGroups;
+  const p = collectionOpenOrder.patient;
+  let labelsHtml = '';
+  Object.keys(groups).sort().forEach(key=>{
+    const { category, bottleType, tests, specimenNumber } = groups[key];
+    const el = document.getElementById(`rqty_${slugify(key)}`);
+    const qty = el ? Math.max(0, parseInt(el.value,10)||0) : 1;
+    const codes = tests.map(t=>t.code).join(', ');
+    for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes);
+  });
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>Sample Labels (Reprint)</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div id="labelPrintArea">${labelsHtml}</div>
+      <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Labels</button><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
+    </div>
+  </div>`;
+}
+function openRecollectDialog(){
+  const rejected = collectionOpenOrder.tests.filter(t=>t.status==='rejected');
+  if(!rejected.length){ showToast('Nothing rejected to recollect.'); return; }
+  buildPendingCollect(rejected.map(t=>t.code), 'recollect');
+  renderPrintDialog();
 }
 async function referOrder(orderId){
   const nameEl = document.getElementById(`referredBy_${orderId}`);
