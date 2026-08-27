@@ -28,8 +28,32 @@ model Facility {
   patients           Patient[]
   ordersAsOrigin     Order[]     @relation("OrderOrigin")
   performedTests     OrderTest[] @relation("PerformingFacility")
+  networks           FacilityNetwork[]
 
   createdAt DateTime @default(now())
+}
+
+// Maps a facility's local network to itself, so a device on that network is recognized
+// automatically at login — no facility picker needed for ordinary staff. Stored as CIDR so a
+// single IP ("203.0.113.42/32") or a whole range ("203.0.113.0/24") both work the same way.
+model FacilityNetwork {
+  id         String   @id
+  facilityId String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  label      String   // e.g. "Main Building WiFi" — just for the admin's own reference
+  cidr       String
+  createdAt  DateTime @default(now())
+}
+
+// Which tasks (capabilities) each role can perform — editable by an Admin in Settings, rather
+// than fixed in code. A role can hold any number of tasks. See src/utils/roles.js for the fixed
+// list of valid capability names and role labels (those stay in code; the *assignment* is data).
+model RoleCapability {
+  id         String @id
+  role       String
+  capability String
+
+  @@unique([role, capability])
 }
 
 model User {

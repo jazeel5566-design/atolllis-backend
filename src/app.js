@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
+app.set('trust proxy', true); // needed for req.ip to be the real client IP behind Render's proxy
 app.use(cors());
 app.use(express.json());
 
@@ -19,6 +20,8 @@ app.use('/api/orders', require('./routes/orders'));
 app.use('/api/specimens', require('./routes/specimens'));
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/facility-networks', require('./routes/facility-networks'));
+app.use('/api/role-capabilities', require('./routes/role-capabilities'));
 app.use('/api/tests', require('./routes/tests'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/history', require('./routes/history'));

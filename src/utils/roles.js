@@ -25,6 +25,19 @@ const ROLE_LABELS = {
   admin: 'Administrator',
 };
 
+const CAPABILITY_LABELS = {
+  collect: 'Sample Collection',
+  accept: 'Sample Acceptance',
+  process: 'Result Processing (analyser + entry)',
+  certify: 'Validate & Certify Results',
+  manage_users: 'Manage Staff Accounts',
+  manage_catalog: 'Manage Test Catalog & Categories',
+  manage_labs: 'Manage Lab Network & Facility Networks',
+};
+
+const ALL_ROLES = Object.keys(ROLE_LABELS);
+const ALL_CAPABILITIES = Object.keys(CAPABILITY_LABELS);
+
 function roleHasCapability(role, capability) {
   return (ROLE_CAPABILITIES[role] || []).includes(capability);
 }
@@ -37,4 +50,4 @@ function canGrantRole(granterRole, targetRole) {
   return roleHasCapability(granterRole, 'manage_users');
 }
 
-module.exports = { ROLE_CAPABILITIES, ROLE_LABELS, roleHasCapability, canGrantRole };
+module.exports = { ROLE_CAPABILITIES, ROLE_LABELS, CAPABILITY_LABELS, ALL_ROLES, ALL_CAPABILITIES, roleHasCapability, canGrantRole };

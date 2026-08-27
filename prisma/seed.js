@@ -30,6 +30,20 @@ async function main() {
     await prisma.user.create({ data: { name: d.name, username: d.username, passwordHash, role: d.role, facilityId: hc1.id } });
   }
 
+  // ---------- Default role → capability assignment (editable later under Settings → Users) ----------
+  const defaultRoleCapabilities = {
+    phlebotomist: ['collect'],
+    technologist: ['collect', 'accept', 'process'],
+    pathologist: ['collect', 'accept', 'process', 'certify'],
+    lab_manager: ['collect', 'accept', 'process', 'certify', 'manage_users'],
+    admin: ['collect', 'accept', 'process', 'certify', 'manage_users', 'manage_catalog', 'manage_labs'],
+  };
+  for (const [role, capabilities] of Object.entries(defaultRoleCapabilities)) {
+    for (const capability of capabilities) {
+      await prisma.roleCapability.create({ data: { id: `${role}_${capability}`, role, capability } });
+    }
+  }
+
   // ---------- Test categories (managed list — controls barcode letters) ----------
   const categoryDefs = [
     { id: 'CAT-HEM', name: 'Hematology', letter: 'H' },
