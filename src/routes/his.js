@@ -12,6 +12,30 @@ router.get('/memos/:memoNumber', async (req, res) => {
   res.json({ ...memo, testCodes: JSON.parse(memo.testCodes) });
 });
 
+// Sample Collection's single fetch field accepts a memo number, a Hospital No., or an ID No. — this
+// is the endpoint behind that: an exact memo number match wins if there is one, otherwise it searches
+// by patient identifiers and returns every matching memo for the caller to disambiguate.
+router.get('/search', requireAuth, async (req, res) => {
+  const q = (req.query.query || '').trim();
+  if (!q) return res.json({ matches: [] });
+
+  const exact = await prisma.mockHisMemo.findUnique({ where: { memoNumber: q } });
+  if (exact) {
+    return res.json({ matches: [{ ...exact, testCodes: JSON.parse(exact.testCodes) }] });
+  }
+
+  const byPatient = await prisma.mockHisMemo.findMany({
+    where: {
+      OR: [
+        { patientHospitalNumber: { contains: q, mode: 'insensitive' } },
+        { patientIdNumber: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ matches: byPatient.map(m => ({ ...m, testCodes: JSON.parse(m.testCodes) })) });
+});
+
 // Dev/demo utility only: seeds a new memo into the mock external system so the fetch flow can be
 // exercised repeatedly without a real HIS/Billing integration. Remove this route in production —
 // memo creation belongs entirely to the external system, never to this app.
