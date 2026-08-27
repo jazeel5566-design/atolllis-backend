@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AtollLIS — Laboratory Information System (API-connected)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+
+  :root{
+    --navy:#0B2545; --navy-2:#122F55; --slate:#13315C;
+    --teal:#1B998B; --teal-dark:#12766B; --teal-bg:#E5F5F3;
+    --amber:#B4720A; --amber-bg:#FCF0DA;
+    --crimson:#B0272D; --crimson-bg:#FBE7E7;
+    --purple:#5B3FA6; --purple-bg:#EFE9FB;
+    --bg:#F4F6F9; --card:#FFFFFF; --border:#DEE4EC;
+    --text:#1F2933; --mute:#5A6B7B;
+    --mono:'IBM Plex Mono',monospace; --sans:'IBM Plex Sans',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14px;}
+  #app{display:none;min-height:100vh;}
+  #app.show{display:flex;}
+  .login-screen{display:none;min-height:100vh;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 20%,var(--navy-2),var(--navy));padding:20px;}
+  .login-screen.show{display:flex;}
+  .login-card{background:#fff;border-radius:16px;padding:32px 28px;width:100%;max-width:380px;box-shadow:0 24px 60px rgba(0,0,0,.35);}
+  .sidebar{width:236px;background:linear-gradient(180deg,var(--navy),var(--navy-2));color:#fff;flex-shrink:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
+  .brand{padding:20px 18px 14px;border-bottom:1px solid rgba(255,255,255,.12);}
+  .brand .mark{font-family:var(--mono);font-weight:600;font-size:19px;letter-spacing:.5px;}
+  .brand .mark span{color:#6FD8C7;}
+  .brand .sub{font-size:11px;color:#9FB0C8;margin-top:3px;letter-spacing:.3px;}
+  nav{padding:10px;flex:1;overflow-y:auto;}
+  nav button{width:100%;text-align:left;background:none;border:none;color:#C9D6E8;padding:10px 12px;border-radius:8px;font-size:13.5px;font-family:var(--sans);cursor:pointer;display:flex;align-items:center;gap:9px;margin-bottom:2px;border-left:3px solid transparent;}
+  nav button:hover{background:rgba(255,255,255,.07);color:#fff;}
+  nav button.active{background:rgba(111,216,199,.13);color:#fff;border-left:3px solid #6FD8C7;font-weight:500;}
+  nav .navicon{width:16px;text-align:center;font-size:13px;opacity:.85;}
+  .sidebar-foot{padding:12px 16px 16px;border-top:1px solid rgba(255,255,255,.12);}
+  .sidebar-foot .user-name{font-size:12.5px;font-weight:600;color:#fff;}
+  .sidebar-foot .user-facility{font-size:11px;color:#9FB0C8;margin:2px 0 10px;}
+  .sidebar-foot .btn-logout{width:100%;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3);}
+  .sidebar-foot .btn-logout:hover{background:rgba(255,255,255,.08);}
+  main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:12px 26px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:5;}
+  .facility-switch{display:flex;align-items:center;gap:8px;font-size:13px;}
+  .facility-switch label{color:var(--mute);}
+  .facility-switch select{font-family:var(--sans);font-size:13px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text);}
+  .tier-badge{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
+  .tier-health_centre{background:var(--teal-bg);color:var(--teal-dark);}
+  .tier-atoll{background:var(--amber-bg);color:var(--amber);}
+  .tier-regional{background:var(--purple-bg);color:var(--purple);}
+  .content{padding:24px 28px 60px;max-width:1180px;width:100%;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 4px;font-weight:600;}
+  h2{font-size:15px;margin:0 0 12px;font-weight:600;}
+  .pagehead{margin-bottom:20px;}
+  .pagehead p{margin:2px 0 0;color:var(--mute);font-size:13px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;}
+  .grid{display:grid;gap:14px;}
+  .grid-2{grid-template-columns:1fr 1fr;}
+  .grid-3{grid-template-columns:1fr 1fr 1fr;}
+  .grid-4{grid-template-columns:repeat(4,1fr);}
+  @media(max-width:820px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr;}}
+  label{display:block;font-size:12px;font-weight:500;color:var(--mute);margin-bottom:5px;}
+  input,select,textarea{width:100%;font-family:var(--sans);font-size:13.5px;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:#fff;color:var(--text);}
+  input:focus,select:focus,textarea:focus{outline:2px solid #6FD8C7;outline-offset:0;border-color:#6FD8C7;}
+  textarea{resize:vertical;min-height:60px;font-family:var(--sans);}
+  .field{margin-bottom:12px;}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:500;padding:9px 15px;border-radius:7px;border:1px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer;}
+  .btn:hover{background:var(--navy-2);}
+  .btn-outline{background:#fff;color:var(--navy);border:1px solid var(--border);}
+  .btn-outline:hover{border-color:var(--navy);}
+  .btn-teal{background:var(--teal);border-color:var(--teal);}
+  .btn-teal:hover{background:var(--teal-dark);}
+  .btn-danger{background:#fff;color:var(--crimson);border:1px solid var(--crimson-bg);}
+  .btn-danger:hover{background:var(--crimson-bg);}
+  .btn-sm{padding:6px 10px;font-size:12px;border-radius:6px;}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--mute);padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;}
+  td{padding:9px 10px;border-bottom:1px solid #EEF1F5;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  .mono{font-family:var(--mono);}
+  .muted{color:var(--mute);}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:100px;letter-spacing:.2px;white-space:nowrap;}
+  .pill-grey{background:#EDF0F4;color:#5A6B7B;}
+  .pill-amber{background:var(--amber-bg);color:var(--amber);}
+  .pill-teal{background:var(--teal-bg);color:var(--teal-dark);}
+  .pill-purple{background:var(--purple-bg);color:var(--purple);}
+  .pill-crimson{background:var(--crimson-bg);color:var(--crimson);}
+  .empty{padding:34px 20px;text-align:center;color:var(--mute);}
+  .empty .big{font-size:28px;margin-bottom:6px;}
+  .modal-overlay{position:fixed;inset:0;background:rgba(11,37,69,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;z-index:50;}
+  .modal{background:#fff;border-radius:14px;max-width:660px;width:100%;padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.25);}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .modal-head h2{margin:0;}
+  .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--mute);}
+  .range-row{display:grid;grid-template-columns:1fr 70px 70px 80px 80px 30px;gap:6px;margin-bottom:6px;align-items:center;}
+  .range-row input,.range-row select{padding:6px 7px;font-size:12.5px;}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.25);}
+  .stepper{display:flex;align-items:center;margin:10px 0 4px;}
+  .flow-track{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;}
+  .flow-step{flex:1 1 160px;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 14px;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s;position:relative;}
+  .flow-step:hover{border-color:var(--teal);box-shadow:0 6px 18px rgba(11,37,69,.08);transform:translateY(-2px);}
+  .flow-num{width:22px;height:22px;border-radius:50%;background:var(--navy);color:#fff;font-family:var(--mono);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;margin-bottom:8px;}
+  .flow-icon{font-size:20px;margin-bottom:4px;}
+  .flow-title{font-weight:600;font-size:13.5px;margin-bottom:3px;}
+  .flow-desc{font-size:11.5px;color:var(--mute);line-height:1.4;min-height:32px;}
+  .flow-badge{margin-top:8px;}
+  .flow-arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--mute);font-size:18px;flex:0 0 auto;}
+  @media(max-width:860px){
+    .flow-track{flex-direction:column;overflow-x:visible;}
+    .flow-arrow{transform:rotate(90deg);padding:2px 0;}
+    .flow-step{min-width:0;}
+  }
+  .step{display:flex;flex-direction:column;align-items:center;flex:1;position:relative;}
+  .step .dot{width:11px;height:11px;border-radius:50%;background:#DEE4EC;z-index:1;}
+  .step.done .dot{background:var(--teal);}
+  .step.now .dot{background:var(--navy);box-shadow:0 0 0 3px #DCE4F5;}
+  .step .lbl{font-size:10px;color:var(--mute);margin-top:5px;text-align:center;max-width:80px;}
+  .step:not(:last-child)::after{content:'';position:absolute;top:5px;left:55%;width:100%;height:2px;background:#DEE4EC;z-index:0;}
+  .step.done:not(:last-child)::after{background:var(--teal);}
+  .order-card{border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;}
+  .order-card-head{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+  .order-id{font-family:var(--mono);font-weight:600;font-size:13px;}
+  .test-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px dashed #EAEEF3;gap:10px;flex-wrap:wrap;}
+  .test-row:first-of-type{border-top:none;}
+  .test-name{font-weight:500;}
+  .test-meta{font-size:11.5px;color:var(--mute);}
+  .result-input{width:90px;display:inline-block;}
+  .flag-High,.flag-CriticalHigh{color:var(--crimson);font-weight:700;}
+  .flag-Low,.flag-CriticalLow{color:var(--amber);font-weight:700;}
+  .flag-Normal{color:var(--teal-dark);font-weight:600;}
+  .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+  .tab{padding:9px 14px;font-size:13px;font-weight:500;color:var(--mute);cursor:pointer;border-bottom:2px solid transparent;}
+  .tab.active{color:var(--navy);border-bottom-color:var(--navy);}
+  .checklist{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:10px;}
+  .check-item{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:6px;}
+  .check-item:hover{background:#F7F9FB;}
+  .cat-label{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--mute);font-weight:600;margin:10px 0 2px;}
+  .report-sheet{background:#fff;border:1px solid var(--border);border-radius:10px;padding:26px 30px;}
+  .report-letterhead{display:flex;justify-content:space-between;border-bottom:2px solid var(--navy);padding-bottom:12px;margin-bottom:14px;}
+  .report-letterhead h1{font-size:16px;margin:0;}
+  .report-letterhead .tag{font-size:11px;color:var(--mute);font-family:var(--mono);}
+  .report-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12.5px;margin-bottom:16px;}
+  .report-meta div span{color:var(--mute);}
+  .kpi{display:flex;flex-direction:column;gap:2px;}
+  .kpi .n{font-size:26px;font-weight:700;font-family:var(--mono);}
+  .kpi .l{font-size:12px;color:var(--mute);}
+  @media print{
+    body *{visibility:hidden;}
+    #labelPrintArea, #labelPrintArea *, #printArea, #printArea *{visibility:visible;}
+    #labelPrintArea{position:fixed;top:0;left:0;width:320px;}
+    #printArea{position:fixed;top:0;left:0;width:100%;}
+    .print-label{page-break-after:always;}
+    .print-label:last-child{page-break-after:auto;}
+    .btn,.no-print{display:none !important;}
+  }
+
+  /* ===== Mobile layout ===== */
+  .menu-btn{display:none;background:none;border:1px solid var(--border);border-radius:7px;width:36px;height:36px;font-size:16px;color:var(--navy);cursor:pointer;flex-shrink:0;}
+  .sidebar-overlay{display:none;}
+  @media(max-width:860px){
+    body{font-size:14.5px;}
+    #app.show{display:block;}
+    .menu-btn{display:inline-flex;align-items:center;justify-content:center;}
+    .sidebar{position:fixed;top:0;left:0;height:100vh;width:250px;max-width:80vw;transform:translateX(-100%);transition:transform .22s ease;z-index:60;box-shadow:0 0 0 rgba(0,0,0,0);}
+    .sidebar.open{transform:translateX(0);box-shadow:12px 0 32px rgba(11,37,69,.25);}
+    .sidebar-overlay.open{display:block;position:fixed;inset:0;background:rgba(11,37,69,.45);z-index:55;}
+    main{width:100%;}
+    .topbar{flex-wrap:wrap;gap:10px;padding:10px 14px;position:sticky;}
+    .topbar-row{display:flex;align-items:center;gap:10px;width:100%;}
+    .facility-switch{width:100%;}
+    .facility-switch select{flex:1;min-width:0;}
+    .content{padding:16px 14px 50px;}
+    .grid-2,.grid-3,.grid-4{grid-template-columns:1fr !important;}
+    table{font-size:12.5px;}
+    th,td{padding:7px 6px;}
+    .modal{padding:18px 16px;max-width:100%;}
+    .modal-overlay{padding:0;align-items:stretch;}
+    .modal{border-radius:0;min-height:100vh;}
+    .range-row{grid-template-columns:1fr 1fr;gap:6px;}
+    .range-row > *:nth-child(5){grid-column:1;}
+    .range-row > *:nth-child(6){grid-column:2;justify-self:end;}
+    .order-card-head{flex-direction:column;align-items:flex-start;}
+    .test-row{flex-direction:column;align-items:flex-start;}
+    .result-input{width:100%;margin-bottom:6px;}
+    .actions-row .btn{flex:1 1 auto;text-align:center;}
+  }
+</style>
+</head>
+<body>
+<div class="login-screen" id="loginScreen"></div>
+<div id="app">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="mark">Atoll<span>LIS</span></div>
+      <div class="sub">Laboratory Information System</div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot" id="sidebarFoot"></div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
+        <div id="topbarLeft" style="flex:1;min-width:0;"></div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+/* ============================= CONSTANTS ============================= */
+// When this page is served BY the backend itself (the recommended combined-deployment setup),
+// the API lives at the same origin, so no configuration is needed at all. When the file is opened
+// directly (file://) for local dev against a separately-running backend, fall back to localhost.
+const DEFAULT_API_BASE = (location.protocol === 'file:')
+  ? 'http://localhost:4000/api'
+  : (location.origin + '/api');
+const TIER_LABEL = {health_centre:'Health Centre', atoll:'Atoll Hospital', regional:'Regional Hospital Laboratory (hosts the LIS)'};
+const TIER_SHORT = {health_centre:'Health Centre', atoll:'Atoll Hospital', regional:'Regional Hospital'};
+const TIER_CLASS = {health_centre:'tier-health_centre', atoll:'tier-atoll', regional:'tier-regional'};
+
+const NAV_ITEMS = [
+  {id:'processflow', label:'Process Flow', icon:'⇉'},
+  {id:'dashboard', label:'Dashboard', icon:'◆'},
+  {id:'collection', label:'Sample Collection', icon:'✚'},
+  {id:'acceptance', label:'Sample Acceptance', icon:'✔'},
+  {id:'processing', label:'Result Processing', icon:'⚗'},
+  {id:'reports', label:'Reports', icon:'▦'},
+  {id:'settings', label:'Settings', icon:'⚙'},
+];
+
+const STATUS_META = {
+  deselected:{label:'Not Collected (deselected)', cls:'pill-grey'},
+  ordered:{label:'Awaiting Collection', cls:'pill-grey'},
+  collected:{label:'Sample Collected — Awaiting Acceptance', cls:'pill-amber'},
+  rejected:{label:'Sample Rejected', cls:'pill-crimson'},
+  awaiting_referral:{label:'Ready — Refer Upward', cls:'pill-purple'},
+  awaiting_receipt:{label:'In Transit to Higher-Level Lab', cls:'pill-purple'},
+  received:{label:'Received — Awaiting Processing', cls:'pill-amber'},
+  processing:{label:'Loaded to Analyser — Processing', cls:'pill-amber'},
+  interfaced:{label:'Result In — Awaiting Validation', cls:'pill-amber'},
+  completed:{label:'Validated & Certified — Completed', cls:'pill-teal'},
+};
+
+/* ============================= SESSION & CACHES ============================= */
+let API_BASE = DEFAULT_API_BASE;
+let session = { token: null, user: null }; // user: { name, facilityId, facilityName, tier }
+let facilitiesCache = [];
+let catalogCache = [];
+let categoriesCache = [];
+let state = { activeView: 'dashboard' };
+
+/* ============================= API CLIENT ============================= */
+async function apiRequest(path, opts){
+  opts = opts || {};
+  const headers = {'Content-Type':'application/json'};
+  if(opts.auth!==false && session.token) headers['Authorization'] = 'Bearer ' + session.token;
+  let res;
+  try{
+    res = await fetch(API_BASE + path, { method: opts.method||'GET', headers, body: opts.body? JSON.stringify(opts.body) : undefined });
+  }catch(networkErr){
+    throw new Error(`Could not reach the backend at ${API_BASE} — is it running? (${networkErr.message})`);
+  }
+  let data = null;
+  try{ data = await res.json(); }catch(e){ /* empty body */ }
+  if(!res.ok){
+    const err = new Error((data && data.error) || `Request failed (HTTP ${res.status})`);
+    err.status = res.status; err.data = data;
+    throw err;
+  }
+  return data;
+}
+const api = {
+  publicFacilities: () => apiRequest('/auth/facilities', {auth:false}),
+  login: (facilityId, username, password) => apiRequest('/auth/login', {method:'POST', body:{facilityId, username, password}, auth:false}),
+  facilities: () => apiRequest('/facilities'),
+  createFacility: (data) => apiRequest('/facilities', {method:'POST', body:data}),
+  deleteFacility: (id) => apiRequest(`/facilities/${id}`, {method:'DELETE'}),
+  catalog: () => apiRequest('/catalog'),
+  createTest: (data) => apiRequest('/catalog', {method:'POST', body:data}),
+  updateTest: (code,data) => apiRequest(`/catalog/${encodeURIComponent(code)}`, {method:'PUT', body:data}),
+  deleteTest: (code) => apiRequest(`/catalog/${encodeURIComponent(code)}`, {method:'DELETE'}),
+  categories: () => apiRequest('/categories'),
+  createCategory: (data) => apiRequest('/categories', {method:'POST', body:data}),
+  updateCategory: (id,data) => apiRequest(`/categories/${id}`, {method:'PUT', body:data}),
+  deleteCategory: (id) => apiRequest(`/categories/${id}`, {method:'DELETE'}),
+  searchPatients: (query) => apiRequest(`/patients${query?('?query='+encodeURIComponent(query)):''}`),
+  createPatient: (data) => apiRequest('/patients', {method:'POST', body:data}),
+  importMemo: (memoNumber) => apiRequest('/orders/import', {method:'POST', body:{memoNumber}}),
+  seedHisMemo: (data) => apiRequest('/his/memos', {method:'POST', body:data}),
+  orders: (stage) => apiRequest(`/orders${stage?('?stage='+stage):''}`),
+  order: (id) => apiRequest(`/orders/${id}`),
+  cancelMemo: (id) => apiRequest(`/orders/${id}`, {method:'DELETE'}),
+  collect: (id, selectedCodes, collectedBy) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes, collectedBy}}),
+  refer: (id, referredByName) => apiRequest(`/orders/${id}/refer`, {method:'POST', body:{referredByName}}),
+  receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
+  getSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}`),
+  loadSpecimenAnalyser: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/load-analyser`, {method:'POST'}),
+  acceptSpecimen: (specimenNumber, acceptedBy) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/accept`, {method:'POST', body:{acceptedBy}}),
+  rejectSpecimen: (specimenNumber, reason) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject`, {method:'POST', body:{reason}}),
+  analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
+  manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
+  certify: (orderId, code, validatedBy) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST', body:{validatedBy}}),
+  report: (orderId) => apiRequest(`/reports/${orderId}`),
+  history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
+};
+
+/* ============================= HELPERS ============================= */
+function fac(id){ return facilitiesCache.find(f=>f.id===id) || {id, name:id||'Unknown facility', tier:'health_centre'}; }
+function test(code){ return catalogCache.find(t=>t.code===code); }
+function isRegional(){ return session.user && session.user.tier==='regional'; }
+function calcAge(dob){
+  const d = new Date(dob), n = new Date();
+  let a = n.getFullYear()-d.getFullYear();
+  const m = n.getMonth()-d.getMonth();
+  if(m<0 || (m===0 && n.getDate()<d.getDate())) a--;
+  return a;
+}
+function matchRange(t, patient){
+  const age = calcAge(patient.dob), sex = patient.sex;
+  let cands = (t.refRanges||[]).filter(r => (r.sex==='Any'||r.sex===sex) && age>=(r.ageMin??0) && age<=(r.ageMax??150));
+  if(!cands.length) return null;
+  cands.sort((a,b)=> (a.sex==='Any'?1:0)-(b.sex==='Any'?1:0));
+  return cands[0];
+}
+function evalResult(t, patient, value){
+  if(!t) return {flag:'N/A', flagLabel:'Unknown test', rangeText:''};
+  const range = matchRange(t, patient);
+  const v = parseFloat(value);
+  if(!range) return {flag:'N/A', flagLabel:'Not established', rangeText:'Not established for age/sex'};
+  let flag='Normal', flagLabel='Normal';
+  if(t.criticalLow!=null && v<=t.criticalLow){ flag='CriticalLow'; flagLabel='CRITICAL LOW'; }
+  else if(t.criticalHigh!=null && v>=t.criticalHigh){ flag='CriticalHigh'; flagLabel='CRITICAL HIGH'; }
+  else if(v<range.low){ flag='Low'; flagLabel='Low'; }
+  else if(v>range.high){ flag='High'; flagLabel='High'; }
+  return {flag, flagLabel, rangeText:`${range.low} – ${range.high} ${t.units||''}`.trim()};
+}
+function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
+function showToast(msg){
+  const root = document.getElementById('toastRoot');
+  root.innerHTML = `<div class="toast">${escapeHtml(msg)}</div>`;
+  setTimeout(()=>{ root.innerHTML=''; }, 3200);
+}
+function barcodeSvg(code, h){
+  h = h||46;
+  let bars = '', x = 4;
+  for(let i=0;i<(code||'').length;i++){
+    const c = code.charCodeAt(i);
+    const w = 2 + (c % 3);
+    if(i % 2 === 0){ bars += `<rect x="${x}" y="0" width="${w}" height="${h}" fill="#111"/>`; }
+    x += w + 1;
+  }
+  return `<svg viewBox="0 0 ${x+4} ${h}" width="100%" height="${h}" xmlns="http://www.w3.org/2000/svg" style="display:block;">${bars}</svg>`;
+}
+async function withErrorToast(fn){
+  try{ await fn(); }
+  catch(e){ showToast(e.message || 'Something went wrong.'); }
+}
+
+/* ============================= LOGIN / LOGOUT ============================= */
+async function renderApp(){
+  const app = document.getElementById('app');
+  const login = document.getElementById('loginScreen');
+  if(!session.token){
+    app.classList.remove('show');
+    login.classList.add('show');
+    await renderLoginScreen();
+  }else{
+    login.classList.remove('show');
+    app.classList.add('show');
+    await render();
+  }
+}
+async function renderLoginScreen(){
+  const el = document.getElementById('loginScreen');
+  el.innerHTML = `<div class="login-card"><div class="brand" style="padding:0 0 18px;border:none;">
+    <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
+    <div class="sub" style="color:var(--mute);">Laboratory Information System</div></div>
+    <p class="muted" style="font-size:12.5px;">Contacting backend…</p></div>`;
+
+  let facilities = [];
+  let loadError = '';
+  try{ facilities = await api.publicFacilities(); }
+  catch(e){ loadError = e.message; }
+
+  el.innerHTML = `
+    <div class="login-card">
+      <div class="brand" style="padding:0 0 18px;border:none;">
+        <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
+        <div class="sub" style="color:var(--mute);">Laboratory Information System</div>
+      </div>
+      ${loadError? `<p style="color:var(--crimson);font-size:12px;">${escapeHtml(loadError)}</p><button class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="renderLoginScreen()">Retry Connection</button>` : ''}
+      <div class="field"><label>Lab / Facility</label>
+        <select id="login_fac">${facilities.map(f=>`<option value="${f.id}">${escapeHtml(f.name)} — ${TIER_SHORT[f.tier]||f.tier}</option>`).join('') || '<option value="">— none loaded —</option>'}</select>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. hc1" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
+        <div class="field"><label>Password</label><input id="login_pass" type="password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
+      </div>
+      <button class="btn" style="width:100%;" onclick="doLogin()">Log In</button>
+    </div>`;
+}
+async function doLogin(){
+  const facilityId = document.getElementById('login_fac').value;
+  const username = (document.getElementById('login_user').value||'').trim();
+  const password = document.getElementById('login_pass').value;
+  if(!facilityId){ showToast('No facility available — check the backend connection.'); return; }
+  if(!username || !password){ showToast('Enter username and password.'); return; }
+  try{
+    const data = await api.login(facilityId, username, password);
+    session.token = data.token; session.user = data.user;
+    await bootstrapCaches();
+    state.activeView = 'dashboard';
+    await renderApp();
+  }catch(e){
+    showToast(e.message);
+  }
+}
+async function bootstrapCaches(){
+  try{ facilitiesCache = await api.facilities(); }catch(e){ facilitiesCache = []; }
+  try{ catalogCache = await api.catalog(); }catch(e){ catalogCache = []; }
+  try{ categoriesCache = await api.categories(); }catch(e){ categoriesCache = []; }
+}
+// Demo convenience only: seeded accounts all use username=facilityId, password=password123, so
+// Regional admin can "view as" another lab without re-typing credentials. A real deployment would
+// not have this shortcut — each facility's staff would hold their own credentials.
+async function quickSwitchFacility(facilityId){
+  try{
+    const data = await api.login(facilityId, facilityId, 'password123');
+    session.token = data.token; session.user = data.user;
+    state.activeView = 'dashboard';
+    closeSidebar();
+    await renderApp();
+  }catch(e){ showToast('Quick switch failed: ' + e.message); }
+}
+function doLogout(){
+  session = { token:null, user:null };
+  facilitiesCache = []; catalogCache = []; categoriesCache = [];
+  closeSidebar();
+  renderApp();
+}
+
+/* ============================= SHELL / ROUTER ============================= */
+function renderShell(){
+  const navEl = document.getElementById('nav');
+  navEl.innerHTML = NAV_ITEMS.map(n=>`<button class="${state.activeView===n.id?'active':''}" onclick="goTo('${n.id}')"><span class="navicon">${n.icon}</span>${n.label}</button>`).join('');
+
+  const f = fac(session.user.facilityId);
+  document.getElementById('topbarLeft').innerHTML = `<h1 style="font-size:16px;">${escapeHtml(f.name)}</h1><span class="tier-badge ${TIER_CLASS[f.tier]}">${TIER_LABEL[f.tier]||f.tier}</span>`;
+
+  document.getElementById('sidebarFoot').innerHTML = `
+    <div class="user-name">${escapeHtml(session.user.name)}</div>
+    <div class="user-facility">${escapeHtml(f.name)}</div>
+    <button class="btn btn-sm btn-logout" onclick="doLogout()">Log Out</button>`;
+}
+function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
+function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
+function goTo(view){ state.activeView = view; render(); closeSidebar(); }
+function goToProcessing(tab){ processingTab = tab; render(); closeSidebar(); }
+function goToReports(tab){ reportsTab = tab; render(); closeSidebar(); }
+function newMemoFocus(){ state.activeView='collection'; render().then(()=>{ const el=document.getElementById('memoFetchField'); if(el) el.focus(); }); closeSidebar(); }
+
+async function render(){
+  renderShell();
+  const c = document.getElementById('content');
+  c.innerHTML = `<div class="card muted">Loading…</div>`;
+  try{
+    let html = '';
+    if(state.activeView==='processflow') html = await viewProcessFlow();
+    else if(state.activeView==='dashboard') html = await viewDashboard();
+    else if(state.activeView==='collection') html = await viewCollectionPage();
+    else if(state.activeView==='acceptance') html = await viewAcceptancePage();
+    else if(state.activeView==='processing') html = await viewProcessingPage();
+    else if(state.activeView==='reports') html = await viewReportsPage();
+    else if(state.activeView==='settings') html = await viewSettings();
+    c.innerHTML = html;
+  }catch(e){
+    c.innerHTML = `<div class="card" style="border-color:var(--crimson-bg);"><h2 style="color:var(--crimson);">Couldn't load this screen</h2><p class="muted">${escapeHtml(e.message)}</p><button class="btn btn-sm" onclick="render()">Retry</button></div>`;
+  }
+}
+
+/* ============================= PROCESS FLOW ============================= */
+async function viewProcessFlow(){
+  const fid = session.user.facilityId, f = fac(fid);
+  const [pendingCollection, referralPending, pendingAcceptance, analyserQ, validationQ, reportable] = await Promise.all([
+    api.orders('pending_collection'), api.orders('referral_pending'), api.orders('pending_acceptance'),
+    api.orders('analyser_queue'), api.orders('validation_queue'), api.orders('reportable'),
+  ]);
+  const awaitingCollect = pendingCollection.length;
+  const referralPendingCount = referralPending.reduce((n,o)=>n+o.tests.filter(t=>t.status==='awaiting_referral').length,0);
+  const awaitingAccept = pendingAcceptance.length;
+  const analyserCount = analyserQ.reduce((n,o)=>n+o.tests.filter(t=>t.performingFacilityId===fid && ['received','processing'].includes(t.status)).length,0);
+  const validationCount = validationQ.reduce((n,o)=>n+o.tests.filter(t=>t.performingFacilityId===fid && ['received','interfaced'].includes(t.status)).length,0);
+  const reportsReady = reportable.filter(o=>o.tests.some(t=>t.status==='completed')).length;
+
+  const steps = [
+    {icon:'🧾', title:'Memo Generation', desc:'Order memo fed from the HIS — or Billing if no HIS is available.', badge:null, action:"newMemoFocus()"},
+    {icon:'🩸', title:'Sample Collection & Referral', desc:'Find by memo number, select tests, collect & print label. Higher-level tests are assigned and sent right here.', badge:awaitingCollect+referralPendingCount, action:"goTo('collection')"},
+    {icon:'📥', title:'Sample Acceptance', desc:'Read the barcode, then Accept or Reject with a reason — local tests only.', badge:awaitingAccept, action:"goTo('acceptance')"},
+    {icon:'⚗️', title:'Analyser Processing', desc:'Load locally-collected samples to the analyser; results interface back automatically.', badge:analyserCount, action:"goToProcessing('analyser')"},
+    {icon:'✅', title:'Result Validation', desc:'Validate & certify interfaced or manually entered results.', badge:validationCount, action:"goToProcessing('validation')"},
+    {icon:'📄', title:'Report Issue', desc:'Completed results become a standard laboratory report.', badge:reportsReady, action:"goToReports('samples')"},
+  ];
+  const track = steps.map((s,i)=>{
+    const step = `<div class="flow-step" onclick="${s.action}">
+      <div class="flow-num">${i+1}</div>
+      <div class="flow-icon">${s.icon}</div>
+      <div class="flow-title">${escapeHtml(s.title)}</div>
+      <div class="flow-desc">${escapeHtml(s.desc)}</div>
+      ${s.badge!==null ? `<div class="flow-badge"><span class="pill ${s.badge>0?'pill-amber':'pill-grey'}">${s.badge} ${s.badge===1?'item':'items'}</span></div>` : ''}
+    </div>`;
+    const arrow = i<steps.length-1 ? `<div class="flow-arrow">→</div>` : '';
+    return step + arrow;
+  }).join('');
+  return `
+    <div class="pagehead"><h1>Process Flow</h1><p>The sample journey at ${escapeHtml(f.name)}, from memo to issued report. Click any step to jump straight to it.</p></div>
+    <div class="card"><div class="flow-track">${track}</div></div>
+  `;
+}
+
+/* ============================= DASHBOARD ============================= */
+async function viewDashboard(){
+  const fid = session.user.facilityId, f = fac(fid);
+  const [pendingCollection, referralPending, pendingAcceptance, incoming, activeLocal, completedToday] = await Promise.all([
+    api.orders('pending_collection'), api.orders('referral_pending'), api.orders('pending_acceptance'),
+    api.orders('incoming_referrals'), api.orders('analyser_queue'), api.orders('reportable'),
+  ]);
+  const awaitingCollect = pendingCollection.length;
+  const awaitingReferAction = referralPending.length;
+  const awaitingAccept = pendingAcceptance.length;
+  const localActive = activeLocal.reduce((n,o)=>n+o.tests.filter(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)).length,0);
+  const incomingAwaitingReceipt = incoming.reduce((n,o)=>n+o.tests.filter(t=>t.referred && t.performingFacilityId===fid && t.status==='awaiting_receipt').length,0);
+  const today = new Date().toDateString();
+  const completedTodayCount = completedToday.reduce((n,o)=>n+o.tests.filter(t=>t.status==='completed' && t.performingFacilityId===fid && t.validatedAt && new Date(t.validatedAt).toDateString()===today).length,0);
+  const anyOrders = awaitingCollect || awaitingAccept || localActive || completedTodayCount || incoming.length;
+
+  return `
+    <div class="pagehead"><h1>Dashboard</h1><p>Live snapshot for ${escapeHtml(f.name)}.</p></div>
+    <div class="grid grid-4">
+      <div class="card kpi"><div class="n">${awaitingCollect}</div><div class="l">Memos awaiting sample collection</div></div>
+      <div class="card kpi"><div class="n">${awaitingAccept}</div><div class="l">Samples awaiting acceptance</div></div>
+      <div class="card kpi"><div class="n">${localActive}</div><div class="l">Local tests in processing / validation</div></div>
+      <div class="card kpi"><div class="n">${completedTodayCount}</div><div class="l">Completed today at this lab</div></div>
+    </div>
+    ${awaitingReferAction || incoming.length ? `<div class="grid grid-2">
+      ${awaitingReferAction? `<div class="card"><h2>Action needed</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${awaitingReferAction} order(s) have higher-level tests ready to be referred upward — assign and send from Sample Collection.</p><button class="btn btn-sm" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
+      ${incoming.length? `<div class="card"><h2>Incoming referrals</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${incomingAwaitingReceipt} in transit to this lab.</p><button class="btn btn-sm" onclick="goToProcessing('incoming')">Open Result Processing →</button></div>`:''}
+    </div>`:''}
+    ${!anyOrders? `<div class="card empty"><div class="big">🧪</div><h2>No activity yet</h2><p>Generate a memo, or load a walk-through demo memo and step it through Collection (incl. referral) → Acceptance → Analyser → Validation yourself.</p><button class="btn" style="margin-top:8px;" onclick="loadDemoMemo()">Load demo memo</button></div>`:''}
+    <div class="card">
+      <h2>The sample-processing pipeline</h2>
+      <ol style="margin:0;padding-left:18px;font-size:13px;color:var(--mute);line-height:1.9;">
+        <li>A memo is generated from the HIS (or Billing, if no HIS) with patient and test details, then fetched into this app by number.</li>
+        <li>At <b>Sample Collection</b>, tests are pre-selected and can be deselected; Collect prints a label with a unique excision number and barcode. Higher-level tests are assigned and sent to the receiving lab right here.</li>
+        <li>At <b>Sample Acceptance</b>, the remaining local tests are Accepted or Rejected (with a reason); already-referred tests skip this step.</li>
+        <li>Local tests load to the analyser and results interface back automatically if the unit matches the catalog.</li>
+        <li>At <b>Result Processing → Validation</b>, results are validated and certified — the sample becomes Completed and its report becomes viewable.</li>
+        <li>Only the performing lab's technologists see the granular "Interfaced" state; everyone else sees "Processing" until it's Completed.</li>
+      </ol>
+    </div>
+  `;
+}
+async function loadDemoMemo(){
+  await withErrorToast(async ()=>{
+    const memoNumber = 'HIS-DEMO-' + Math.floor(1000+Math.random()*9000);
+    await api.seedHisMemo({
+      memoNumber, source:'HIS', orderedBy:'Dr. Ibrahim Shaan',
+      patient:{ name:'Mohamed Rasheed', idNumber:'A234567', hospitalNumber:'H-01452', dob:'1975-11-02', sex:'M', address:'Maalhos, Ari Atoll' },
+      tests:['GLU','CREA','CA125'],
+    });
+    state.activeView='collection'; await render();
+    const el = document.getElementById('memoFetchField'); if(el){ el.value = memoNumber; el.focus(); }
+    showToast(`A new memo, ${memoNumber}, is now available from the HIS — press "Fetch from HIS / Billing" to pull it in.`);
+  });
+}
+
+/* ============================= SAMPLE COLLECTION ============================= */
+let worklistSearch = '';
+let collectionOpenOrderId = null;
+let collectionOpenOrder = null;
+let memoFetchStatus = null;
+let memoFetchError = '';
+let pendingCollect = null;
+
+async function viewCollectionPage(){
+  const f = fac(session.user.facilityId);
+  const header = `
+    <div class="pagehead"><h1>Sample Collection</h1><p>${escapeHtml(f.name)} — fetch a memo from the HIS or Billing system, then collect.</p></div>
+    <div class="card">
+      <div class="field" style="max-width:440px;margin-bottom:8px;">
+        <label>Memo Number — type it, or scan the barcode on the memo</label>
+        <input id="memoFetchField" placeholder="e.g. HIS-2026-004821" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();fetchMemo();}">
+      </div>
+      <button class="btn" onclick="fetchMemo()">Fetch from HIS / Billing</button>
+      ${memoFetchStatus==='loading'? `<p class="muted" style="font-size:12.5px;margin-top:8px;">Contacting HIS/Billing system…</p>`:''}
+      ${memoFetchStatus==='error'? `<p style="color:var(--crimson);font-size:12.5px;margin-top:8px;">${escapeHtml(memoFetchError)}</p>`:''}
+      <p class="muted" style="font-size:11px;margin-top:10px;">Memos are created in the HIS — or Billing, if no HIS is available — not in this app.</p>
+    </div>`;
+
+  if(collectionOpenOrderId){
+    let order;
+    try{ order = await api.order(collectionOpenOrderId); collectionOpenOrder = order; }
+    catch(e){ collectionOpenOrderId=null; collectionOpenOrder=null; showToast(e.message); return header + await renderCollectionQueue(f); }
+    return header + renderCollectionPanel(order, f);
+  }
+
+  const [referralPending, queueHtml] = await Promise.all([api.orders('referral_pending'), renderCollectionQueue(f)]);
+  return header + (referralPending.length ? renderReferralPendingBlock(referralPending, f) : '') + queueHtml;
+}
+async function renderCollectionQueue(f){
+  const q = worklistSearch.trim().toLowerCase();
+  const orders = await api.orders('pending_collection');
+  const filtered = q ? orders.filter(o=>{
+    const p = o.patient;
+    return (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+  }) : orders;
+  const searchHtml = `<div class="card">
+    <h2 style="margin-bottom:8px;">Fetched, Awaiting Collection</h2>
+    <div class="field" style="max-width:440px;margin-bottom:0;">
+      <label>Filter this queue by Hospital No., ID No., or Name</label>
+      <input id="collSearch" value="${escapeHtml(worklistSearch)}" placeholder="Type or paste…"
+        oninput="worklistSearch=this.value;render();const el=document.getElementById('collSearch');if(el)el.focus();"></div></div>`;
+  const listHtml = filtered.length ? filtered.map(o=>{
+    const p = o.patient;
+    return `<div class="order-card" style="cursor:pointer;" onclick="collectionOpenOrderId='${o.id}';render();">
+      <div class="order-card-head">
+        <div><span class="order-id">${escapeHtml(o.memoNumber)}</span> <span class="pill pill-grey">${o.memoSource}</span>
+          — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
+          <div class="muted" style="font-size:11.5px;">${o.tests.length} test(s) ordered · ${escapeHtml(o.orderedBy)} · ${fmtDate(o.createdAt)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="pill pill-grey">Awaiting Collection</span>
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelMemo('${o.id}')">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('') : `<div class="card empty"><div class="big">🧾</div>${q? 'No matching memo awaiting collection.' : 'No memos awaiting collection — fetch one by number above.'}</div>`;
+  return searchHtml + listHtml;
+}
+function renderReferralPendingBlock(orders, f){
+  return `<div class="card">
+    <h2>Collected — Referral Pending</h2>
+    <p class="muted" style="font-size:12px;margin-top:-6px;">Higher-level tests are assigned and sent from here, right after collection — the receiving lab accepts them on arrival, so no local acceptance step is needed for these.</p>
+    ${orders.map(o=>{
+      const p = o.patient;
+      const pending = o.tests.filter(t=>t.status==='awaiting_referral');
+      return `<div class="order-card">
+        <div class="order-card-head">
+          <div><span class="order-id">${escapeHtml(o.memoNumber||o.id)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div>
+          <span class="pill pill-purple">${pending.length} test(s) ready to refer</span>
+        </div>
+        ${pending.map(t=>{
+          const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
+          return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span><span class="mono muted" style="font-size:11px;">${spec?escapeHtml(spec.specimenNumber):''}</span></div>`;
+        }).join('')}
+        <div class="grid grid-2" style="margin-top:10px;align-items:end;">
+          <div class="field" style="margin-bottom:0;"><label>Referred By (staff name)</label><input id="referredBy_${o.id}" placeholder="e.g. Aminath Nazima"></div>
+          <button class="btn btn-teal" onclick="referOrder('${o.id}')">⇪ Refer higher-level test(s) upward — 1 click</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function renderCollectionPanel(o, f){
+  const p = o.patient;
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h2 style="margin-bottom:2px;">${escapeHtml(p?.name||'Unknown')}</h2>
+        <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')} · ID No. ${escapeHtml(p?.idNumber||'—')} · ${p?calcAge(p.dob):'?'}y · ${p?.sex||'—'}<br>${escapeHtml(p?.address||'')}</div>
+        <div class="muted" style="font-size:11.5px;margin-top:4px;">Memo ${escapeHtml(o.memoNumber)} (${o.memoSource}) · Ordered by ${escapeHtml(o.orderedBy)} · ${fmtDate(o.createdAt)}</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-danger btn-sm" onclick="cancelMemo('${o.id}')">Cancel Memo</button>
+        <button class="btn btn-outline btn-sm" onclick="collectionOpenOrderId=null;render();">← Back to list</button>
+      </div>
+    </div>
+    <div class="field" style="margin-top:14px;">
+      <label>Tests — selected by default; deselect any not being collected now</label>
+      <div class="actions-row" style="margin-bottom:6px;">
+        <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=true);">Select All</button>
+        <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=false);">Deselect All</button>
+      </div>
+      <div class="checklist">
+        ${o.tests.map(t=>{
+          const tc = test(t.code);
+          return `<label class="check-item" style="cursor:pointer;">
+          <input type="checkbox" name="collectTest" value="${t.code}" checked style="margin-top:2px;">
+          <span><b>${escapeHtml(t.name)}</b> <span class="mono muted">(${t.code})</span>
+          <div class="muted" style="font-size:11.5px;">${escapeHtml(tc?.category||'')} · ${escapeHtml(tc?.specimenType||'')} · min. level: ${TIER_SHORT[tc?.minTier]||'—'}</div></span>
+        </label>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="field"><label>Collected By (Phlebotomist / Technologist)</label>
+      <input id="collectedByName" placeholder="e.g. Aminath Nazima">
+    </div>
+    <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect Sample</button></div>
+  </div>`;
+}
+async function fetchMemo(){
+  const el = document.getElementById('memoFetchField');
+  const num = (el.value||'').trim();
+  if(!num){ showToast('Enter or scan a memo number.'); return; }
+  memoFetchStatus = 'loading'; memoFetchError = ''; await render();
+  try{
+    const order = await api.importMemo(num);
+    memoFetchStatus = null; memoFetchError = '';
+    if(order.sampleStatus){
+      showToast(`Memo ${num} has already been collected.`);
+      await render();
+      return;
+    }
+    collectionOpenOrderId = order.id;
+    await render();
+    showToast(`Memo ${order.memoNumber} fetched from ${order.memoSource} — proceed to collect.`);
+  }catch(e){
+    memoFetchStatus = 'error'; memoFetchError = e.message;
+    await render();
+    const el2 = document.getElementById('memoFetchField'); if(el2){ el2.value = num; el2.focus(); }
+  }
+}
+async function cancelMemo(orderId){
+  if(!confirm('Cancel this memo? This removes it permanently — it has not been collected yet.')) return;
+  await withErrorToast(async ()=>{
+    await api.cancelMemo(orderId);
+    if(collectionOpenOrderId===orderId){ collectionOpenOrderId=null; collectionOpenOrder=null; }
+    await render();
+    showToast('Memo cancelled.');
+  });
+}
+function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'bottle'; }
+
+// Groups selected tests by (Category, Specimen Type) — matching the backend exactly, since that's
+// the same key used there to decide how many distinct barcode labels this collection requires.
+function openPrintDialog(){
+  const selected = Array.from(document.querySelectorAll('input[name="collectTest"]:checked')).map(el=>el.value);
+  if(!selected.length && !confirm('No tests selected — collect an empty sample anyway?')) return;
+  const collectedBy = (document.getElementById('collectedByName').value||'').trim();
+  if(!collectedBy){ showToast('Enter the name of the phlebotomist / technologist collecting this sample.'); return; }
+
+  const groups = {}; // "category||bottleType" -> {category, bottleType, tests:[{code,name}]}
+  selected.forEach(code=>{
+    const tc = test(code);
+    const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
+    const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
+    const key = `${category}||${bottleType}`;
+    const testName = (collectionOpenOrder.tests.find(t=>t.code===code)||{}).name || code;
+    (groups[key] = groups[key] || {category, bottleType, tests:[]}).tests.push({code, name: testName});
+  });
+
+  pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: selected, collectedBy, groups };
+  if(!Object.keys(groups).length){ confirmCollectAndPrint(); return; } // nothing selected — skip straight to collect
+  renderPrintDialog();
+}
+function renderPrintDialog(){
+  const { groups } = pendingCollect;
+  const rows = Object.keys(groups).sort().map(key=>{
+    const { category, bottleType, tests } = groups[key];
+    return `<div class="test-row">
+      <div><b>${escapeHtml(category)} — ${escapeHtml(bottleType)}</b>
+        <div class="muted" style="font-size:11px;">${tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ')}</div>
+      </div>
+      <div><label class="muted" style="font-size:11px;display:block;">Labels to print</label>
+        <input type="number" min="0" value="1" id="qty_${slugify(key)}" style="width:80px;"></div>
+    </div>`;
+  }).join('');
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-head"><h2>Print Barcode Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">One barcode per Category + Specimen Type combination, based on each test's Test Catalog settings. Set how many copies of each to print.</p>
+      <div class="checklist" style="max-height:none;">${rows}</div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="confirmCollectAndPrint()">Collect & Print</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function confirmCollectAndPrint(){
+  const { orderId, selectedCodes, collectedBy, groups } = pendingCollect;
+  const quantities = {};
+  Object.keys(groups).forEach(key=>{
+    const el = document.getElementById(`qty_${slugify(key)}`);
+    quantities[key] = el ? Math.max(0, parseInt(el.value,10)||0) : 1;
+  });
+  await withErrorToast(async ()=>{
+    const order = await api.collect(orderId, selectedCodes, collectedBy);
+    collectionOpenOrderId = null; collectionOpenOrder = null;
+    await render();
+    printLabelsForOrder(order, groups, quantities);
+    showToast(`Sample collected — ${order.specimens.length} specimen(s) barcoded.`);
+  });
+}
+function printLabelsForOrder(o, groups, quantities){
+  const p = o.patient;
+  const keys = Object.keys(groups);
+  let labelsHtml = '';
+  if(!keys.length){
+    labelsHtml = `<p class="muted">No tests were selected — nothing to label.</p>`;
+  }else{
+    keys.sort().forEach(key=>{
+      const { category, bottleType, tests } = groups[key];
+      // Each (category, bottle type) pair got its own real specimen barcode from the backend —
+      // that's the number an analyzer reads and results come back tagged with.
+      const specimen = (o.specimens||[]).find(s=>s.category===category && s.bottleType===bottleType);
+      const specimenNumber = specimen ? specimen.specimenNumber : '—';
+      const qty = quantities[key] ?? 1;
+      const codes = tests.map(t=>t.code).join(', ');
+      for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes);
+    });
+  }
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>Sample Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div id="labelPrintArea">${labelsHtml}</div>
+      <p class="muted no-print" style="font-size:11.5px;margin-top:10px;">Simulated barcode for this prototype — not camera-scannable. Later screens accept the specimen number typed or pasted, the way a real scanner would inject it.</p>
+      <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Labels</button><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
+    </div>
+  </div>`;
+}
+function renderOneLabel(p, specimenNumber, category, bottleType, codes){
+  return `<div class="print-label" style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">
+    <div style="font-weight:700;font-size:13.5px;">${escapeHtml(p?.name||'Unknown')}</div>
+    <div class="mono" style="font-size:12px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')}</div>
+    <div style="font-size:12px;font-weight:600;margin-top:4px;">${escapeHtml(category)} — ${escapeHtml(bottleType)}</div>
+    <div style="font-size:11.5px;margin:2px 0 6px;color:#444;">${escapeHtml(codes)||'—'}</div>
+    ${barcodeSvg(specimenNumber)}
+    <div class="mono" style="text-align:center;font-size:12px;letter-spacing:1px;margin-top:2px;">${escapeHtml(specimenNumber)}</div>
+  </div>`;
+}
+async function referOrder(orderId){
+  const nameEl = document.getElementById(`referredBy_${orderId}`);
+  const staffName = nameEl ? nameEl.value.trim() : '';
+  if(!staffName){ showToast('Enter the name of the staff member sending this referral.'); return; }
+  await withErrorToast(async ()=>{
+    const result = await api.refer(orderId, staffName);
+    await render();
+    showToast(`Referred to ${result.referredTo.join(' & ')} — same order, no duplicate created. Only these test(s) become visible there.`);
+  });
+}
+
+/* ============================= SAMPLE ACCEPTANCE ============================= */
+let acceptanceTab = 'pending';
+let acceptanceScanResult = null;
+
+async function viewAcceptancePage(){
+  const f = fac(session.user.facilityId);
+  const [pendingRaw, rejectedOrders] = await Promise.all([api.orders('pending_acceptance'), api.orders('rejected')]);
+  const rejectedSpecimens = [];
+  rejectedOrders.forEach(o => (o.specimens||[]).filter(s=>s.status==='rejected').forEach(s => rejectedSpecimens.push({o, s})));
+  return `
+    <div class="pagehead"><h1>Sample Acceptance</h1><p>${escapeHtml(f.name)} — accept or reject each specimen individually.</p></div>
+    <div class="tabs">
+      <div class="tab ${acceptanceTab==='pending'?'active':''}" onclick="acceptanceTab='pending';worklistSearch='';acceptanceScanResult=null;render();">Awaiting Acceptance (${pendingRaw.length})</div>
+      <div class="tab ${acceptanceTab==='rejected'?'active':''}" onclick="acceptanceTab='rejected';worklistSearch='';render();">Sample Rejection Log (${rejectedSpecimens.length})</div>
+    </div>
+    ${acceptanceTab==='pending' ? renderAcceptanceTab(pendingRaw, f) : renderRejectedLog(rejectedSpecimens)}
+  `;
+}
+// Acceptance is per specimen (per tube, per category) — scan-first, same pattern as Analyser Processing.
+function renderAcceptanceTab(orders, f){
+  const scanBox = `<div class="card">
+    <div class="field" style="max-width:400px;margin-bottom:8px;">
+      <label>Scan or enter the Specimen Barcode Number</label>
+      <input id="acceptScanField" placeholder="e.g. H268271001" autocomplete="off"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();scanSpecimenForAcceptance();}">
+    </div>
+    <button class="btn" onclick="scanSpecimenForAcceptance()">Load Specimen</button>
+  </div>`;
+
+  const scanPanel = acceptanceScanResult ? renderAcceptancePanel(acceptanceScanResult) : '';
+
+  const rows = orders.map(o=>{
+    const p = o.patient;
+    const specimens = (o.specimens||[]).filter(s=>s.status==='collected' && o.tests.some(t=>t.specimenId===s.id && t.status==='collected'));
+    if(!specimens.length) return '';
+    return `<div class="order-card">
+      <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
+        <div class="muted" style="font-size:11.5px;">Collected ${fmtDate(o.collectedAt)} by ${escapeHtml(o.collectedBy||'—')}</div></div></div>
+      ${specimens.map(s=>`<div class="test-row" style="cursor:pointer;" onclick="document.getElementById('acceptScanField').value='${s.specimenNumber}';scanSpecimenForAcceptance();">
+        <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
+        <div><span class="pill pill-amber">Awaiting Acceptance</span></div>
+      </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  return scanBox + scanPanel + (rows || (!acceptanceScanResult ? `<div class="card empty"><div class="big">🧪</div>No specimens awaiting acceptance.</div>` : ''));
+}
+function renderAcceptancePanel(s){
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h2 style="margin-bottom:2px;">${escapeHtml(s.patient?.name||'Unknown')} <span class="mono muted" style="font-weight:400;">(${escapeHtml(s.specimenNumber)})</span></h2>
+        <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')} · ID No. ${escapeHtml(s.patient?.idNumber||'—')} · ${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="acceptanceScanResult=null;render();">Close</button>
+    </div>
+    <div style="margin:12px 0;padding:10px;border:1px dashed var(--border);border-radius:8px;max-width:260px;">
+      ${barcodeSvg(s.specimenNumber)}
+      <div class="mono" style="text-align:center;font-size:12px;margin-top:2px;">${escapeHtml(s.specimenNumber)}</div>
+    </div>
+    <div class="field"><label>Tests on this specimen</label>
+      <div class="checklist">${s.tests.map(t=>`<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span></div>`).join('') || '<p class="muted">No tests on this specimen.</p>'}</div>
+    </div>
+    ${s.status==='collected' ? `<div class="actions-row">
+      <button class="btn btn-teal" onclick="acceptSpecimen('${s.specimenNumber}')">Accept Specimen</button>
+      <button class="btn btn-danger" onclick="rejectSpecimen('${s.specimenNumber}')">Reject Specimen</button>
+    </div>` : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}.</p>`}
+  </div>`;
+}
+function renderRejectedLog(rejectedSpecimens){
+  if(!rejectedSpecimens.length) return `<div class="card empty"><div class="big">🚫</div>No rejected specimens on record.</div>`;
+  return rejectedSpecimens.map(({o,s})=>{
+    const p = o.patient;
+    return `<div class="order-card">
+      <div class="order-card-head">
+        <div><span class="order-id">${escapeHtml(s.specimenNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
+          <div class="muted" style="font-size:11.5px;">${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)} · Memo ${escapeHtml(o.memoNumber)}</div>
+        </div>
+        <span class="pill pill-crimson">Rejected: ${escapeHtml(s.rejectionReason||'Not specified')}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function scanSpecimenForAcceptance(){
+  const el = document.getElementById('acceptScanField');
+  const num = (el.value||'').trim();
+  if(!num){ showToast('Enter or scan a specimen number.'); return; }
+  await withErrorToast(async ()=>{
+    acceptanceScanResult = await api.getSpecimen(num);
+    await render();
+  });
+}
+async function acceptSpecimen(specimenNumber){
+  const acceptedBy = prompt('Accepting lab officer name:');
+  if(!acceptedBy) return;
+  await withErrorToast(async ()=>{
+    acceptanceScanResult = await api.acceptSpecimen(specimenNumber, acceptedBy);
+    await render();
+    showToast('Specimen received into the laboratory.');
+  });
+}
+async function rejectSpecimen(specimenNumber){
+  const reason = prompt('Reason for rejection (e.g. haemolysed, insufficient volume, unlabelled):');
+  if(reason===null || !reason.trim()) return;
+  await withErrorToast(async ()=>{
+    acceptanceScanResult = await api.rejectSpecimen(specimenNumber, reason);
+    await render();
+    showToast('Specimen rejected.');
+  });
+}
+
+/* ============================= RESULT PROCESSING ============================= */
+let processingTab = 'analyser';
+let validationFilter = 'interfaced';
+
+let analyserScanResult = null;
+async function viewProcessingPage(){
+  const fid = session.user.facilityId, f = fac(fid);
+  const [analyserQ, validationQ, incomingQ] = await Promise.all([
+    api.orders('analyser_queue'), api.orders('validation_queue'), api.orders('incoming_referrals'),
+  ]);
+  return `
+    <div class="pagehead"><h1>Result Processing</h1><p>Analyser interface and validation for ${escapeHtml(f.name)}.</p></div>
+    <div class="tabs">
+      <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';render();">Analyser Processing (${analyserQ.length})</div>
+      <div class="tab ${processingTab==='validation'?'active':''}" onclick="processingTab='validation';worklistSearch='';render();">Result Entry & Validation (${validationQ.length})</div>
+      <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
+    </div>
+    ${processingTab==='analyser'? renderProcessingTab(analyserQ, f)
+      : processingTab==='validation'? renderValidationTab(validationQ, f)
+      : renderIncomingTab(incomingQ, f)}
+  `;
+}
+// The analyzer identifies work entirely by the specimen barcode on the tube — not by order — so
+// this screen is scan-first: read (or type) the specimen number, see exactly what's on that tube.
+function renderProcessingTab(orders, f){
+  const scanBox = `<div class="card">
+    <div class="field" style="max-width:400px;margin-bottom:8px;">
+      <label>Scan or enter the Specimen Barcode Number</label>
+      <input id="specimenScanField" placeholder="e.g. EXC..." autocomplete="off"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();scanSpecimenForAnalyser();}">
+    </div>
+    <button class="btn" onclick="scanSpecimenForAnalyser()">Load Specimen</button>
+    <p class="muted" style="font-size:11px;margin-top:8px;">This is the number the analyzer reads directly off the tube — it identifies exactly which test(s) to run, and it's how results coming back get matched to the right patient and order.</p>
+  </div>`;
+
+  const scanPanel = analyserScanResult ? renderSpecimenScanPanel(analyserScanResult) : '';
+
+  // Browsable fallback for finding a specimen without its number in hand.
+  const rows = orders.map(o=>{
+    const p = o.patient;
+    const specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing'].includes(t.status)));
+    if(!specimens.length) return '';
+    return `<div class="order-card">
+      <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
+      ${specimens.map(s=>{
+        const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+        return `<div class="test-row" style="cursor:pointer;" onclick="document.getElementById('specimenScanField').value='${s.specimenNumber}';scanSpecimenForAnalyser();">
+          <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.bottleType)})</span></div>
+          <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+
+  return scanBox + scanPanel + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>Nothing awaiting analyser processing.</div>` : ''));
+}
+function renderSpecimenScanPanel(s){
+  const anyReceived = s.tests.some(t=>t.status==='received');
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h2 style="margin-bottom:2px;">${escapeHtml(s.patient?.name||'Unknown')} <span class="mono muted" style="font-weight:400;">(${escapeHtml(s.specimenNumber)})</span></h2>
+        <div class="muted" style="font-size:12px;">${escapeHtml(s.bottleType)} · Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')} · Memo ${escapeHtml(s.memoNumber)}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="analyserScanResult=null;render();">Close</button>
+    </div>
+    <div class="actions-row" style="margin-top:10px;">
+      ${anyReceived? `<button class="btn btn-sm" onclick="loadSpecimenToAnalyser('${s.specimenNumber}')">Load Sample to Analyser</button>`:''}
+    </div>
+    ${s.tests.map(t=>renderProcessingTestRow({id:s.orderId}, t)).join('')}
+  </div>`;
+}
+async function scanSpecimenForAnalyser(){
+  const el = document.getElementById('specimenScanField');
+  const num = (el.value||'').trim();
+  if(!num){ showToast('Enter or scan a specimen number.'); return; }
+  await withErrorToast(async ()=>{
+    analyserScanResult = await api.getSpecimen(num);
+    await render();
+  });
+}
+async function loadSpecimenToAnalyser(specimenNumber){
+  await withErrorToast(async ()=>{
+    analyserScanResult = await api.loadSpecimenAnalyser(specimenNumber);
+    await render();
+    showToast('Specimen barcode read at the analyser — test orders transmitted from the LIS.');
+  });
+}
+function renderProcessingTestRow(o, t){
+  const meta = STATUS_META[t.status] || {label:t.status, cls:'pill-grey'};
+  let body = `<span class="pill ${meta.cls}">${meta.label}</span>`;
+  if(t.status==='processing'){
+    const tc = test(t.code);
+    body += ` <input class="result-input" id="val_${o.id}_${t.code}" placeholder="value">
+    <input class="result-input" id="unit_${o.id}_${t.code}" placeholder="unit" value="${escapeHtml(tc?.units||'')}" style="width:76px;">
+    <button class="btn btn-sm btn-outline" onclick="submitAnalyserResult('${o.id}','${t.code}')">Submit from Analyser</button>`;
+  }
+  return `<div class="test-row"><div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div></div><div>${body}</div></div>`;
+}
+async function submitAnalyserResult(orderId, code){
+  const val = (document.getElementById(`val_${orderId}_${code}`).value||'').trim();
+  const unit = (document.getElementById(`unit_${orderId}_${code}`).value||'').trim();
+  if(val===''){ showToast('Enter a result value.'); return; }
+  await withErrorToast(async ()=>{
+    await api.analyserResult(orderId, code, val, unit);
+    await render();
+    showToast(`Result received from the analyser for ${code} — unit matched, sample now Interfaced.`);
+  });
+}
+
+function renderValidationTab(orders, f){
+  const q = worklistSearch.trim().toLowerCase();
+  let rows = [];
+  orders.forEach(o=>{
+    const p = o.patient;
+    if(q){
+      const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
+      const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+      if(!matchOrder) return;
+    }
+    o.tests.forEach(t=>{ if(t.performingFacilityId===f.id && (t.status==='received'||t.status==='interfaced')) rows.push({o,t,p}); });
+  });
+  const received = rows.filter(r=>r.t.status==='received');
+  const interfaced = rows.filter(r=>r.t.status==='interfaced');
+  const active = validationFilter==='received' ? received : interfaced;
+
+  const searchHtml = `<div class="card">
+    <div class="grid grid-2">
+      <div class="field" style="margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., or Specimen No.</label>
+        <input id="valSearch" value="${escapeHtml(worklistSearch)}" placeholder="Type or paste…"
+          oninput="worklistSearch=this.value;render();const el=document.getElementById('valSearch');if(el)el.focus();"></div>
+      <div class="field" style="margin-bottom:0;"><label>Filter</label>
+        <select onchange="validationFilter=this.value;render();">
+          <option value="received" ${validationFilter==='received'?'selected':''}>Received — manual entry (${received.length})</option>
+          <option value="interfaced" ${validationFilter==='interfaced'?'selected':''}>Interfaced — awaiting validation (${interfaced.length})</option>
+        </select>
+      </div>
+    </div>
+  </div>`;
+  if(!active.length) return searchHtml + `<div class="card empty"><div class="big">🧫</div>Nothing in this queue right now.</div>`;
+
+  const list = active.map(({o,t,p})=>{
+    const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
+    const rowId = spec ? spec.specimenNumber : o.memoNumber;
+    if(t.status==='received'){
+      const tc = test(t.code);
+      return `<div class="order-card">
+        <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
+        <div class="test-row">
+          <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">Manual entry — unit fixed to catalog default (${escapeHtml(tc?.units||'')})</div></div>
+          <div><input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button></div>
+        </div>
+      </div>`;
+    }
+    const tc = test(t.code);
+    const info = evalResult(tc, p, t.value);
+    return `<div class="order-card">
+      <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
+      <div class="test-row">
+        <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">Entered by ${escapeHtml(t.enteredBy||'—')}, ${fmtDate(t.enteredAt)}</div></div>
+        <div><span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
+        <button class="btn btn-sm" onclick="certifyResult('${o.id}','${t.code}')">Validate & Certify</button></div>
+      </div>
+    </div>`;
+  }).join('');
+  return searchHtml + list;
+}
+async function enterManualResult(orderId, code){
+  const val = (document.getElementById(`mval_${orderId}_${code}`).value||'').trim();
+  if(val===''){ showToast('Enter a value first.'); return; }
+  await withErrorToast(async ()=>{
+    await api.manualResult(orderId, code, val);
+    await render();
+  });
+}
+async function certifyResult(orderId, code){
+  const name = prompt('Validating & certifying lab officer name:');
+  if(!name) return;
+  await withErrorToast(async ()=>{
+    await api.certify(orderId, code, name);
+    await render();
+    showToast(`Result certified by ${name} — status now Completed.`);
+  });
+}
+function renderIncomingTab(orders, f){
+  if(!orders.length) return `<div class="card empty"><div class="big">📥</div>No referred samples in transit to this facility.</div>`;
+  return orders.map(o=>{
+    const p = o.patient;
+    const referredTests = o.tests.filter(t=>t.referred && t.performingFacilityId===f.id && t.status==='awaiting_receipt');
+    return `<div class="order-card">
+      <div class="order-card-head">
+        <div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
+          <div class="muted" style="font-size:11.5px;">Referred by ${escapeHtml(o.referredByName||'—')} · Order placed ${fmtDate(o.createdAt)}</div>
+        </div>
+        <span class="pill pill-purple">Referred — same order, no duplicate</span>
+      </div>
+      <div class="actions-row"><button class="btn btn-sm" onclick="receiveReferral('${o.id}')">Receive Sample at ${escapeHtml(f.name)}</button></div>
+      ${referredTests.map(t=>{
+        const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
+        return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span> ${spec?`<span class="mono muted" style="font-size:11px;">${escapeHtml(spec.specimenNumber)}</span>`:''}</span><span class="pill pill-purple">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+}
+async function receiveReferral(orderId){
+  await withErrorToast(async ()=>{
+    await api.receiveReferral(orderId);
+    await render();
+    showToast('Referred sample received into this lab.');
+  });
+}
+
+/* ============================= REPORTS ============================= */
+let selectedReportOrder = null;
+let reportSearch = '';
+let reportsTab = 'samples';
+
+async function viewReportsPage(){
+  const f = fac(session.user.facilityId);
+  return `
+    <div class="pagehead"><h1>Reports</h1><p>Standard laboratory reports and patient history for ${escapeHtml(f.name)}.</p></div>
+    <div class="tabs">
+      <div class="tab ${reportsTab==='samples'?'active':''}" onclick="reportsTab='samples';render();">Sample Reports</div>
+      <div class="tab ${reportsTab==='history'?'active':''}" onclick="reportsTab='history';render();">Patient History</div>
+    </div>
+    ${reportsTab==='samples'? await viewReportsInner() : viewHistoryInner()}
+  `;
+}
+async function viewReportsInner(){
+  const q = reportSearch.trim().toLowerCase();
+  let orders = await api.orders('reportable');
+  if(q) orders = orders.filter(o=>{
+    const p = o.patient;
+    const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
+    return specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+  });
+  const list = orders.map(o=>{
+    const p = o.patient;
+    const doneCount = o.tests.filter(t=>t.status==='completed').length;
+    const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
+    const anyDone = doneCount>0;
+    return `<tr style="cursor:pointer;" onclick="selectedReportOrder='${o.id}';render();">
+      <td class="mono">${escapeHtml(o.memoNumber||o.id)}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.createdAt)}</td>
+      <td>${doneCount}/${collectedCount} completed</td>
+      <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectedReportOrder='${o.id}';render();">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="field" style="max-width:420px;margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., Memo No., or Specimen No.</label>
+        <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Type or paste…"
+          oninput="reportSearch=this.value;render();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Memo No.</th><th>Patient</th><th>Date</th><th>Status</th><th></th></tr></thead>
+      <tbody>${list || `<tr><td colspan="5" class="empty">No samples found.</td></tr>`}</tbody></table>
+    </div>
+    ${selectedReportOrder ? await renderReportSheet(selectedReportOrder) : ''}
+  `;
+}
+async function renderReportSheet(orderId){
+  let report;
+  try{ report = await api.report(orderId); }
+  catch(e){ return `<div class="card" style="color:var(--crimson);">${escapeHtml(e.message)}</div>`; }
+  const { order, facility, patient, lines } = report;
+  const rows = lines.map(l=>{
+    if(l.status){
+      return `<tr><td>${escapeHtml(l.name)}</td><td class="mono">${l.code}</td><td>${escapeHtml(test(l.code)?.method||'')}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}${l.referred?` — at ${escapeHtml(l.performingFacility||'')}`:''}</td></tr>`;
+    }
+    return `<tr>
+      <td>${escapeHtml(l.name)}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
+      <td class="mono">${l.code}</td>
+      <td>${escapeHtml(l.method||'')}</td>
+      <td class="mono flag-${(l.flag||'').replace(' ','')}">${l.value} ${l.unit||''} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</td>
+      <td class="muted" style="font-size:12px;">${l.rangeText||''}<br>Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="report-sheet" id="printArea">
+      <div class="report-letterhead">
+        <div><h1>${escapeHtml(facility.name)}</h1><div class="tag">Standard Laboratory Report</div></div>
+        <div style="text-align:right;"><div class="mono">${escapeHtml(order.memoNumber||order.id)}</div><div class="muted" style="font-size:11.5px;">${fmtDate(order.createdAt)}</div></div>
+      </div>
+      <div class="report-meta">
+        <div><span>Patient: </span><b>${escapeHtml(patient.name)}</b></div>
+        <div><span>Hospital No. / ID No.: </span><span class="mono">${escapeHtml(patient.hospitalNumber||'—')} / ${escapeHtml(patient.idNumber||'—')}</span></div>
+        <div><span>DOB / Age / Sex: </span>${patient.dob} / ${calcAge(patient.dob)}y / ${patient.sex}</div>
+        <div><span>Address: </span>${escapeHtml(patient.address||'—')}</div>
+        <div><span>Ordering Clinician: </span>${escapeHtml(order.orderedBy)}</div>
+        <div><span>Memo: </span>${escapeHtml(order.memoNumber)}</div>
+        <div style="grid-column:1/-1;"><span>Specimens: </span>${(report.specimens||[]).map(s=>`<span class="mono">${escapeHtml(s.specimenNumber)}</span> (${escapeHtml(s.bottleType)})`).join(', ')||'—'}</div>
+      </div>
+      <table><thead><tr><th>Test</th><th>Code</th><th>Method</th><th>Result</th><th>Reference Range / Source</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Report</button><button class="btn btn-outline" onclick="selectedReportOrder=null;render();">Close</button></div>
+    </div>`;
+}
+
+/* ============================= PATIENT HISTORY ============================= */
+let histSearchQuery = '';
+function viewHistoryInner(){
+  return `
+    <div class="card">
+      <p class="muted" style="font-size:12.5px;margin-top:0;">Scoped to this facility: its own orders in full, plus only the specific tests that were referred to or from it.</p>
+      <div class="field" style="max-width:420px;">
+        <label>Search patient by Name, Hospital No., or ID No.</label>
+        <input id="histSearch" value="${escapeHtml(histSearchQuery)}" placeholder="Type a name, hospital no., or ID…"
+          oninput="histSearchQuery=this.value;searchHistory();">
+      </div>
+      <div id="histResults"></div>
+    </div>
+  `;
+}
+async function searchHistory(){
+  const q = histSearchQuery.trim();
+  const root = document.getElementById('histResults');
+  if(!q){ root.innerHTML=''; return; }
+  root.innerHTML = `<p class="muted">Searching…</p>`;
+  let results;
+  try{ results = await api.history(q); }
+  catch(e){ root.innerHTML = `<p style="color:var(--crimson);">${escapeHtml(e.message)}</p>`; return; }
+  if(!results.length){ root.innerHTML = `<p class="muted">No matching patients.</p>`; return; }
+  root.innerHTML = results.map(({patient:p, orders})=>{
+    const entries = orders.map(o=>{
+      const rows = o.tests.map(t=>{
+        if(t.status){
+          return `<div class="test-row"><span>${escapeHtml(t.name)}</span><span class="pill ${(STATUS_META[t.status]||{cls:'pill-grey'}).cls}">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
+        }
+        return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
+          <span class="mono flag-${(t.flag||'').replace(' ','')}">${t.value} ${t.unit||''} ${t.flag && t.flag!=='Normal' && t.flag!=='N/A'?`— ${t.flagLabel}`:''}</span></div>
+          <div class="muted" style="font-size:11px;margin:-4px 0 6px;">Ref: ${t.rangeText||''} · Certified by ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>`;
+      }).join('');
+      return `<div class="order-card">
+        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber||o.orderId)}</span> <span class="muted">— ${o.own? `ordered here, ${fmtDate(o.createdAt)}` : `referred in, ${fmtDate(o.createdAt)}`}</span></div>
+        ${!o.own? `<span class="pill pill-purple">Referred tests only</span>`:''}</div>
+        ${rows}
+      </div>`;
+    }).join('');
+    return `<div style="margin-top:14px;"><h2>${escapeHtml(p.name)} <span class="mono muted" style="font-weight:400;">(${escapeHtml(p.hospitalNumber||p.id)})</span></h2>
+      <p class="muted" style="margin-top:-8px;font-size:12.5px;">${p.dob} · ${calcAge(p.dob)}y · ${p.sex}</p>
+      ${entries}</div>`;
+  }).join('');
+}
+
+/* ============================= SETTINGS ============================= */
+let settingsTab = 'catalog';
+async function viewSettings(){
+  const f = fac(session.user.facilityId);
+  return `
+    <div class="pagehead"><h1>Settings</h1><p>Configuration for ${escapeHtml(f.name)}.</p></div>
+    <div class="tabs">
+      <div class="tab ${settingsTab==='catalog'?'active':''}" onclick="settingsTab='catalog';render();">Test Catalog</div>
+      ${isRegional()? `<div class="tab ${settingsTab==='categories'?'active':''}" onclick="settingsTab='categories';render();">Categories</div>`:''}
+      <div class="tab ${settingsTab==='patients'?'active':''}" onclick="settingsTab='patients';render();">Patients</div>
+      ${isRegional()? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
+      ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
+    </div>
+    ${settingsTab==='catalog'? viewCatalog()
+      : settingsTab==='categories'? viewCategories()
+      : settingsTab==='patients'? await viewPatients()
+      : settingsTab==='connection'? await viewConnection()
+      : await viewAdmin()}
+  `;
+}
+
+/* ---------- Test Categories (Regional admin only — controls barcode letters) ---------- */
+function viewCategories(){
+  if(!isRegional()) return `<div class="card empty">Only the Regional Hospital Laboratory manages test categories.</div>`;
+  const rows = categoriesCache.map(c=>{
+    const inUse = catalogCache.filter(t=>t.category===c.name).length;
+    return `<tr>
+      <td class="mono" style="font-weight:700;font-size:15px;">${escapeHtml(c.letter)}</td>
+      <td>${escapeHtml(c.name)}</td>
+      <td>${inUse} test(s)</td>
+      <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openCategoryModal('${c.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteCategory('${c.id}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Test Categories</h1><p>Each category's letter becomes the first character of every specimen barcode generated for it (e.g. Hematology → H268271001). Move a test between categories by editing it in the Test Catalog.</p></div>
+      <button class="btn" onclick="openCategoryModal()">+ New Category</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Letter</th><th>Category</th><th>Tests</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="empty">No categories defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openCategoryModal(id){
+  const existing = id ? categoriesCache.find(c=>c.id===id) : null;
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>${existing?'Edit Category':'New Category'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Category Name</label><input id="cat_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Immunology"></div>
+      <div class="field"><label>Barcode Letter</label><input id="cat_letter" maxlength="1" style="text-transform:uppercase;max-width:80px;" value="${escapeHtml(existing?.letter||'')}" placeholder="e.g. I"></div>
+      <p class="muted" style="font-size:11.5px;">Must be a single letter not already used by another category.</p>
+      <div class="actions-row"><button class="btn" onclick="saveCategory(${existing?`'${existing.id}'`:'null'})">Save Category</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveCategory(id){
+  const name = (document.getElementById('cat_name').value||'').trim();
+  const letter = (document.getElementById('cat_letter').value||'').trim();
+  if(!name){ showToast('Enter a category name.'); return; }
+  await withErrorToast(async ()=>{
+    if(id) await api.updateCategory(id, {name, letter});
+    else await api.createCategory({name, letter});
+    categoriesCache = await api.categories();
+    closeModal(); await render();
+    showToast(`Category "${name}" saved.`);
+  });
+}
+async function deleteCategory(id){
+  if(!confirm('Delete this category? Tests must be moved elsewhere first.')) return;
+  await withErrorToast(async ()=>{
+    await api.deleteCategory(id);
+    categoriesCache = await api.categories();
+    await render();
+  });
+}
+
+/* ---------- Connection (read-only, Regional admin only) ---------- */
+async function viewConnection(){
+  let health = null, healthError = '';
+  try{ health = await apiRequest('/health', {auth:false}); }
+  catch(e){ healthError = e.message; }
+  return `
+    <div class="card">
+      <h2>Backend Connection</h2>
+      <p class="muted" style="font-size:12.5px;">This is informational only — the app connects to its backend automatically and this isn't meant to be changed during normal use.</p>
+      <div class="field"><label>API Base URL</label><input value="${escapeHtml(API_BASE)}" readonly style="background:#F7F9FB;color:var(--mute);"></div>
+      <div class="field"><label>Status</label>
+        ${health? `<span class="pill pill-teal">Connected — ${escapeHtml(health.service||'OK')}</span>` : `<span class="pill pill-crimson">Unreachable — ${escapeHtml(healthError)}</span>`}
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="render()">Re-check</button>
+    </div>
+  `;
+}
+
+/* ---------- Test Catalog ---------- */
+function viewCatalog(){
+  const editable = isRegional();
+  const rows = catalogCache.map(t=>`
+    <tr>
+      <td class="mono">${escapeHtml(t.code)}</td>
+      <td>${escapeHtml(t.name)}<div class="muted" style="font-size:11.5px;">${escapeHtml(t.specimenType||'')}</div></td>
+      <td>${escapeHtml(t.category)} <span class="mono muted" style="font-size:11px;">(${escapeHtml((categoriesCache.find(c=>c.name===t.category)||{}).letter||'?')})</span></td>
+      <td>${escapeHtml(t.method||'')}</td>
+      <td class="mono">${escapeHtml(t.units||'')}</td>
+      <td><span class="tier-badge ${TIER_CLASS[t.minTier]}">${TIER_SHORT[t.minTier]}</span></td>
+      <td>${(t.refRanges||[]).length} range(s)</td>
+      <td>${t.tat}h</td>
+      <td style="white-space:nowrap;">${editable? `<button class="btn btn-outline btn-sm" onclick="openTestModal('${t.code}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteTest('${t.code}')">Delete</button>` : `<span class="muted" style="font-size:11.5px;">Read-only</span>`}</td>
+    </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Test Catalog</h1><p>${editable? 'Define test codes, parameters, methods, reference ranges and reporting comments — standardised across every lab in the network.' : `Centrally managed by the Regional Hospital. Atoll Hospitals and Health Centres use this catalog to place orders but cannot edit it.`}</p></div>
+      ${editable? `<button class="btn" onclick="openTestModal()">+ New Test</button>` : ''}
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table>
+        <thead><tr><th>Code</th><th>Test / Specimen</th><th>Category</th><th>Method</th><th>Units</th><th>Min. Facility Level</th><th>Ref. Ranges</th><th>TAT</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="9" class="empty">No tests defined yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+let draftTest = null;
+function openTestModal(code){
+  const existing = code ? test(code) : null;
+  draftTest = existing ? JSON.parse(JSON.stringify(existing)) : {
+    code:'', name:'', category:'', specimenType:'', method:'', units:'', tat:24,
+    minTier:'health_centre', criticalLow:null, criticalHigh:null, comment:'',
+    refRanges:[{sex:'Any', ageMin:0, ageMax:150, low:'', high:''}]
+  };
+  document.getElementById('modalRoot').innerHTML = testModalHtml(!!existing);
+}
+function testModalHtml(isEdit){
+  const t = draftTest;
+  return `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal">
+      <div class="modal-head"><h2>${isEdit? 'Edit Test':'New Test'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="grid grid-2">
+        <div class="field"><label>Test Code</label><input id="f_code" value="${escapeHtml(t.code)}" ${isEdit?'disabled':''} placeholder="e.g. LDL" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Test Name</label><input id="f_name" value="${escapeHtml(t.name)}" placeholder="e.g. LDL Cholesterol"></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Category</label>
+          <select id="f_category">${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${t.category===c.name?'selected':''}>${escapeHtml(c.name)} (${escapeHtml(c.letter)})</option>`).join('') || '<option value="">— add a category first, in Settings → Categories —</option>'}</select>
+        </div>
+        <div class="field"><label>Specimen Type</label><input id="f_specimen" value="${escapeHtml(t.specimenType||'')}" placeholder="e.g. Serum"></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Test Method</label><input id="f_method" value="${escapeHtml(t.method||'')}" placeholder="e.g. Enzymatic Colorimetric"></div>
+        <div class="field"><label>Reporting Units</label><input id="f_units" value="${escapeHtml(t.units||'')}" placeholder="e.g. mg/dL"></div>
+      </div>
+      <div class="grid grid-3">
+        <div class="field"><label>Turnaround Time (hrs)</label><input id="f_tat" type="number" value="${t.tat}"></div>
+        <div class="field"><label>Critical Low</label><input id="f_cl" type="number" step="any" value="${t.criticalLow??''}" placeholder="optional"></div>
+        <div class="field"><label>Critical High</label><input id="f_ch" type="number" step="any" value="${t.criticalHigh??''}" placeholder="optional"></div>
+      </div>
+      <div class="field">
+        <label>Minimum Facility Level Required to Perform This Test</label>
+        <select id="f_tier">
+          <option value="health_centre" ${t.minTier==='health_centre'?'selected':''}>Health Centre</option>
+          <option value="atoll" ${t.minTier==='atoll'?'selected':''}>Atoll Hospital</option>
+          <option value="regional" ${t.minTier==='regional'?'selected':''}>Regional Hospital only</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Reference Ranges</label>
+        <div id="rangeTable">${rangeRowsHtml()}</div>
+        <button type="button" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="addRangeRow()">+ Add reference range row</button>
+      </div>
+      <div class="field"><label>Comment / Interpretive Note</label><textarea id="f_comment">${escapeHtml(t.comment||'')}</textarea></div>
+      <div class="actions-row">
+        <button class="btn" onclick="saveTest()">Save Test</button>
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
+function rangeRowsHtml(){
+  const header = `<div class="range-row" style="font-size:11px;color:var(--mute);font-weight:600;"><div>Sex</div><div>Age min</div><div>Age max</div><div>Low</div><div>High</div><div></div></div>`;
+  const rows = draftTest.refRanges.map((r,i)=>`
+    <div class="range-row">
+      <select onchange="draftTest.refRanges[${i}].sex=this.value">
+        <option value="Any" ${r.sex==='Any'?'selected':''}>Any</option>
+        <option value="M" ${r.sex==='M'?'selected':''}>Male</option>
+        <option value="F" ${r.sex==='F'?'selected':''}>Female</option>
+      </select>
+      <input type="number" value="${r.ageMin}" onchange="draftTest.refRanges[${i}].ageMin=parseFloat(this.value)||0">
+      <input type="number" value="${r.ageMax}" onchange="draftTest.refRanges[${i}].ageMax=parseFloat(this.value)||150">
+      <input type="number" step="any" value="${r.low}" onchange="draftTest.refRanges[${i}].low=parseFloat(this.value)">
+      <input type="number" step="any" value="${r.high}" onchange="draftTest.refRanges[${i}].high=parseFloat(this.value)">
+      <button type="button" class="btn btn-danger btn-sm" style="padding:5px 8px;" onclick="removeRangeRow(${i})">✕</button>
+    </div>`).join('');
+  return header + rows;
+}
+function addRangeRow(){ draftTest.refRanges.push({sex:'Any', ageMin:0, ageMax:150, low:'', high:''}); document.getElementById('rangeTable').innerHTML = rangeRowsHtml(); }
+function removeRangeRow(i){ draftTest.refRanges.splice(i,1); document.getElementById('rangeTable').innerHTML = rangeRowsHtml(); }
+async function saveTest(){
+  const code = document.getElementById('f_code').value.trim().toUpperCase();
+  const name = document.getElementById('f_name').value.trim();
+  if(!code || !name){ showToast('Test code and name are required.'); return; }
+  const isNew = draftTest.code==='';
+  const payload = {
+    code, name,
+    category: document.getElementById('f_category').value.trim() || 'General',
+    specimenType: document.getElementById('f_specimen').value.trim(),
+    method: document.getElementById('f_method').value.trim(),
+    units: document.getElementById('f_units').value.trim(),
+    tat: parseFloat(document.getElementById('f_tat').value) || 24,
+    minTier: document.getElementById('f_tier').value,
+    criticalLow: document.getElementById('f_cl').value===''? null : parseFloat(document.getElementById('f_cl').value),
+    criticalHigh: document.getElementById('f_ch').value===''? null : parseFloat(document.getElementById('f_ch').value),
+    comment: document.getElementById('f_comment').value,
+    refRanges: draftTest.refRanges.filter(r=>r.low!==''&&r.high!==''&&r.low!=null&&r.high!=null),
+  };
+  await withErrorToast(async ()=>{
+    if(isNew) await api.createTest(payload); else await api.updateTest(draftTest.code, payload);
+    catalogCache = await api.catalog();
+    closeModal(); await render();
+    showToast(`Test ${code} saved to catalog.`);
+  });
+}
+async function deleteTest(code){
+  if(!confirm(`Delete test ${code} from the catalog? This will not affect existing orders.`)) return;
+  await withErrorToast(async ()=>{
+    await api.deleteTest(code);
+    catalogCache = await api.catalog();
+    await render();
+  });
+}
+
+/* ---------- Patients ---------- */
+async function viewPatients(){
+  let patients = [];
+  try{ patients = await api.searchPatients(''); }catch(e){ /* ignore */ }
+  const rows = patients.map(p=>`
+    <tr>
+      <td class="mono">${escapeHtml(p.hospitalNumber||'—')}</td>
+      <td class="mono">${escapeHtml(p.idNumber||'—')}</td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.dob)} <span class="muted">(${calcAge(p.dob)}y)</span></td>
+      <td>${p.sex}</td>
+      <td class="muted" style="font-size:12px;">${escapeHtml(p.address||'—')}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="reportsTab='history';goTo('reports');setTimeout(()=>{const el=document.getElementById('histSearch');if(el){histSearchQuery='${escapeHtml(p.hospitalNumber||p.id)}';el.value=histSearchQuery;searchHistory();}},50);">View history</button></td>
+    </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Patients</h1><p>Registry shared across every facility in the network — used to identify patients when a memo is fetched.</p></div>
+      <button class="btn" onclick="openPatientModal()">+ Add Patient</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Hospital No.</th><th>ID No.</th><th>Name</th><th>DOB</th><th>Sex</th><th>Address</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="empty">No patients registered yet.</td></tr>`}</tbody></table>
+    </div>`;
+}
+let patientModalCallback = null;
+function openPatientModal(onSaved){
+  patientModalCallback = onSaved || null;
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head"><h2>Register Patient</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="grid grid-2">
+        <div class="field"><label>Hospital Number</label><input id="p_hospno" placeholder="e.g. H-01234"></div>
+        <div class="field"><label>National ID Number</label><input id="p_idno" placeholder="e.g. A123456"></div>
+      </div>
+      <div class="field"><label>Full Name</label><input id="p_name" placeholder="e.g. Fathimath Shifa"></div>
+      <div class="grid grid-2">
+        <div class="field"><label>Date of Birth</label><input id="p_dob" type="date"></div>
+        <div class="field"><label>Sex</label><select id="p_sex"><option value="F">Female</option><option value="M">Male</option></select></div>
+      </div>
+      <div class="field"><label>Address</label><input id="p_addr" placeholder="e.g. Thundufushi, Ari Atoll"></div>
+      <div class="actions-row"><button class="btn" onclick="savePatient()">Save Patient</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function savePatient(){
+  const name = (document.getElementById('p_name').value||'').trim();
+  const dob = document.getElementById('p_dob').value;
+  if(!name || !dob){ showToast('Name and date of birth are required.'); return; }
+  const payload = {
+    name, dob, sex: document.getElementById('p_sex').value,
+    hospitalNumber: document.getElementById('p_hospno').value.trim(),
+    idNumber: document.getElementById('p_idno').value.trim(),
+    address: document.getElementById('p_addr').value.trim(),
+  };
+  await withErrorToast(async ()=>{
+    const p = await api.createPatient(payload);
+    const cb = patientModalCallback; patientModalCallback = null;
+    closeModal();
+    if(cb) cb(p); else await render();
+    showToast(`Patient ${p.name} registered (Hospital No. ${p.hospitalNumber||'—'}).`);
+  });
+}
+
+/* ---------- Admin — Manage Labs ---------- */
+async function viewAdmin(){
+  if(!isRegional()){
+    return `<div class="card empty">Only the Regional Hospital Laboratory (top-level, hosting) lab has admin rights to manage labs.</div>`;
+  }
+  const reg = facilitiesCache.find(f=>f.tier==='regional') || {name:'Regional Hospital'};
+  const atollRows = facilitiesCache.filter(f=>f.tier==='atoll').map(f=>`<tr>
+      <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
+      <td><span class="tier-badge ${TIER_CLASS[f.tier]}">${TIER_SHORT[f.tier]}</span></td>
+      <td><button class="btn btn-outline btn-sm" onclick="quickSwitchFacility('${f.id}')">View as this lab</button> <button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+    </tr>`).join('');
+  const hcRows = facilitiesCache.filter(f=>f.tier==='health_centre').map(f=>{
+    const parent = facilitiesCache.find(x=>x.id===f.parentAtollId);
+    return `<tr>
+      <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
+      <td>${parent? escapeHtml(parent.name) : `${escapeHtml(reg.name)} <span class="muted">(direct — no Atoll Hospital)</span>`}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="quickSwitchFacility('${f.id}')">View as this lab</button> <button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Admin — Manage Labs</h1><p>This platform is hosted by ${escapeHtml(reg.name)}. Create and manage the Atoll Hospital and Health Centre labs that connect to it.</p></div>
+      <button class="btn" onclick="openLabModal()">+ Create Lab</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <h2 style="padding:16px 20px 0;">Atoll Hospital labs</h2>
+      <table><thead><tr><th>Lab ID</th><th>Name</th><th>Level</th><th></th></tr></thead>
+      <tbody>${atollRows || `<tr><td colspan="4" class="empty">No Atoll Hospital labs created yet.</td></tr>`}</tbody></table>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <h2 style="padding:16px 20px 0;">Health Centre labs</h2>
+      <table><thead><tr><th>Lab ID</th><th>Name</th><th>Parent Atoll Hospital</th><th></th></tr></thead>
+      <tbody>${hcRows || `<tr><td colspan="4" class="empty">No Health Centre labs created yet.</td></tr>`}</tbody></table>
+    </div>
+    <p class="muted" style="font-size:11.5px;">"View as this lab" uses the seeded demo credentials (username = facility ID, password = password123) as a convenience — a real deployment would require each facility's own staff to log in with their own credentials.</p>
+  `;
+}
+function openLabModal(){
+  const atolls = facilitiesCache.filter(f=>f.tier==='atoll');
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-head"><h2>Create Lab</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Lab Level</label>
+        <select id="lab_tier" onchange="document.getElementById('parentField').style.display=this.value==='health_centre'?'block':'none';">
+          <option value="atoll">Atoll Hospital</option>
+          <option value="health_centre">Health Centre</option>
+        </select>
+      </div>
+      <div class="field"><label>Lab Name</label><input id="lab_name" placeholder="e.g. Dhiffushi Health Centre"></div>
+      <div class="field" id="parentField" style="display:none;">
+        <label>Parent Atoll Hospital</label>
+        ${atolls.length ? `<select id="lab_parent"><option value="">— No Atoll Hospital (refer directly to Regional) —</option>${atolls.map(f=>`<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('')}</select>`
+          : `<p class="muted" style="font-size:11.5px;">No Atoll Hospital exists yet — the Regional Hospital will automatically act as the parent lab.</p>`}
+      </div>
+      <div class="actions-row"><button class="btn" onclick="saveLab()">Create Lab</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveLab(){
+  const name = (document.getElementById('lab_name').value||'').trim();
+  const tier = document.getElementById('lab_tier').value;
+  if(!name){ showToast('Enter a name for the new lab.'); return; }
+  const parentSelect = document.getElementById('lab_parent');
+  const parentAtollId = (tier==='health_centre' && parentSelect) ? parentSelect.value : undefined;
+  await withErrorToast(async ()=>{
+    await api.createFacility({ name, tier, parentAtollId: parentAtollId || undefined });
+    facilitiesCache = await api.facilities();
+    closeModal(); await render();
+    showToast(`${name} created.`);
+  });
+}
+async function removeFacility(id){
+  if(!confirm('Remove this lab?')) return;
+  await withErrorToast(async ()=>{
+    const result = await api.deleteFacility(id);
+    facilitiesCache = await api.facilities();
+    await render();
+    showToast(result.reparentedHealthCentres ? `Removed. ${result.reparentedHealthCentres} Health Centre(s) now refer directly to Regional.` : 'Lab removed.');
+  });
+}
+
+/* ============================= INIT ============================= */
+(async function init(){
+  await renderApp();
+})();
+</script>
+</body>
+</html>

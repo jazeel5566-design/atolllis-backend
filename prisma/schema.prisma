@@ -1,0 +1,202 @@
+// AtollLIS — Prisma schema
+//
+// Provider is set to PostgreSQL — this matches the live Neon database this app is deployed
+// against. If you ever need a fresh local SQLite copy for offline dev, change `provider` below
+// back to "sqlite", point DATABASE_URL at "file:./dev.db", and re-run `npx prisma migrate dev`.
+// The schema itself is written to be portable between the two — no SQLite-only features are used.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Network hierarchy ----------
+
+model Facility {
+  id            String     @id @default(cuid())
+  name          String
+  tier          String     // 'health_centre' | 'atoll' | 'regional'
+  parentAtollId String?
+  parentAtoll   Facility?  @relation("AtollChildren", fields: [parentAtollId], references: [id])
+  children      Facility[] @relation("AtollChildren")
+
+  users              User[]
+  patients           Patient[]
+  ordersAsOrigin     Order[]     @relation("OrderOrigin")
+  performedTests     OrderTest[] @relation("PerformingFacility")
+
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  username     String   // unique together with facility in practice; kept simple for demo
+  passwordHash String
+  facilityId   String
+  facility     Facility @relation(fields: [facilityId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@unique([facilityId, username])
+}
+
+// ---------- Test catalog ----------
+
+model TestDefinition {
+  code         String  @id
+  name         String
+  category     String
+  specimenType String?
+  method       String?
+  units        String?
+  tat          Int     @default(24)
+  minTier      String  // 'health_centre' | 'atoll' | 'regional' — lowest tier able to perform it
+  criticalLow  Float?
+  criticalHigh Float?
+  comment      String?
+
+  refRanges ReferenceRange[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReferenceRange {
+  id       Int            @id @default(autoincrement())
+  testCode String
+  test     TestDefinition @relation(fields: [testCode], references: [code], onDelete: Cascade)
+  sex      String         // 'M' | 'F' | 'Any'
+  ageMin   Float
+  ageMax   Float
+  low      Float
+  high     Float
+}
+
+// ---------- Patients ----------
+
+model Patient {
+  id             String    @id
+  name           String
+  idNumber       String?
+  hospitalNumber String?
+  dob            String
+  sex            String
+  address        String?
+  homeFacilityId String?
+  homeFacility   Facility? @relation(fields: [homeFacilityId], references: [id])
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+}
+
+// ---------- External HIS / Billing (simulated) ----------
+// Stands in for the real Hospital Information System / Billing system. This app never creates
+// memos — it only reads them by number. In a real deployment this table (and the /api/his routes
+// that serve it) would not exist here at all; they'd be a call out to the real HIS/Billing API.
+
+model MockHisMemo {
+  memoNumber            String   @id
+  source                String   // 'HIS' | 'Billing'
+  orderedBy             String
+  patientName           String
+  patientIdNumber       String?
+  patientHospitalNumber String?
+  patientDob            String
+  patientSex            String
+  patientAddress        String?
+  testCodes             String   // JSON-encoded array of test codes
+  createdAt             DateTime @default(now())
+}
+
+// ---------- Test categories ----------
+// A managed list (not free text) so barcode letters stay unambiguous and tests can be reassigned
+// between categories cleanly. Seeded with Hematology/Biochemistry/Serology/Clinical Pathology/
+// Microbiology, but Regional can add more.
+
+model TestCategory {
+  id        String   @id
+  name      String   @unique
+  letter    String   @unique // single uppercase letter — the barcode prefix for this category
+  createdAt DateTime @default(now())
+}
+
+// ---------- Orders (memo -> sample -> results) ----------
+
+model Order {
+  id                 String   @id
+  memoSource         String   // 'HIS' | 'Billing'
+  memoNumber         String   @unique
+  patientId          String
+  patient            Patient  @relation(fields: [patientId], references: [id])
+  orderingFacilityId String
+  orderingFacility   Facility @relation("OrderOrigin", fields: [orderingFacilityId], references: [id])
+  orderedBy          String
+  createdAt          DateTime @default(now())
+
+  // Whole-encounter fields — everything drawn together, at once. Acceptance/rejection is NOT
+  // tracked here any more: it happens per Specimen (per tube, per category) below.
+  sampleStatus String? // null (not yet collected) -> 'collected' (stays 'collected' permanently)
+  collectedAt  DateTime?
+  collectedBy  String?
+  referredAt   DateTime?
+  referredByName String?
+
+  tests     OrderTest[]
+  specimens Specimen[]
+}
+
+// One row per physical tube/bottle. Each gets its own unique barcode (specimenNumber) — that's
+// the number an analyzer actually reads: it identifies which test(s) to run on that specific tube,
+// and when results come back, this number is how the LIS knows which patient and which test(s)
+// they belong to. Grouping key is (category, bottleType) — not bottle type alone — since a lab
+// department (e.g. Serology) tracks its own tube separately from another department (e.g.
+// Biochemistry) even if both happen to use a serum tube. Format: <category letter><YY><M><DD>
+// <4-digit daily sequence, per category> — e.g. H268271001 = Hematology, 2026, Aug (8, unpadded),
+// the 27th, the 1001st Hematology specimen logged that day.
+// Acceptance/rejection is decided per specimen (per tube, per department) — not for the whole order.
+model Specimen {
+  id             String    @id
+  specimenNumber String    @unique
+  orderId        String
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  category       String    // snapshot of the test category this tube was drawn for
+  bottleType     String    // matches the test's Specimen Type in the Test Catalog
+  status         String    @default("collected") // 'collected' -> 'received' | 'rejected'
+  acceptedAt     DateTime?
+  acceptedBy     String?
+  rejectionReason String?
+  createdAt      DateTime  @default(now())
+
+  tests OrderTest[]
+}
+
+model OrderTest {
+  id                    String    @id
+  orderId               String
+  order                 Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  code                  String
+  name                  String
+  needsReferral         Boolean   @default(false)
+  referred              Boolean   @default(false)
+  performingFacilityId  String
+  performingFacility    Facility  @relation("PerformingFacility", fields: [performingFacilityId], references: [id])
+  specimenId            String?
+  specimen              Specimen? @relation(fields: [specimenId], references: [id])
+
+  // Per-test lifecycle:
+  // ordered -> deselected | collected -> [awaiting_referral -> awaiting_receipt ->] received
+  //   -> processing -> interfaced -> completed   (rejected is a terminal off-ramp from 'collected')
+  status         String
+  value          String?
+  unit           String?
+  enteredAt      DateTime?
+  enteredBy      String?
+  validatedBy    String?
+  validatedAt    DateTime?
+  referredByName String?
+}
