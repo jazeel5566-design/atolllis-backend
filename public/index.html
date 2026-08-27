@@ -846,18 +846,28 @@ function buildPendingCollect(codes, mode){
   });
   pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: codes, groups, mode };
 }
+// Fixed-width right column (not flex-wrap) so the quantity input always lands in the same place,
+// regardless of how long the category/bottle-type heading or specimen number happens to be.
+function renderQtyRow(category, bottleType, specimenNumber, testsLine, inputId, qtyLabel){
+  return `<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-top:1px dashed #EAEEF3;">
+    <div style="flex:1;min-width:0;">
+      <b>${escapeHtml(category)} — ${escapeHtml(bottleType)}</b>
+      ${specimenNumber? `<div class="mono muted" style="font-size:11px;margin-top:2px;">${escapeHtml(specimenNumber)}</div>`:''}
+      <div class="muted" style="font-size:11px;margin-top:2px;">${testsLine}</div>
+    </div>
+    <div style="flex:0 0 84px;">
+      <label class="muted" style="font-size:11px;display:block;margin-bottom:4px;">${qtyLabel}</label>
+      <input type="number" min="0" value="1" id="${inputId}" style="width:100%;">
+    </div>
+  </div>`;
+}
 function renderPrintDialog(){
   const { groups, mode } = pendingCollect;
   const isRecollect = mode==='recollect';
   const rows = Object.keys(groups).sort().map(key=>{
     const { category, bottleType, tests } = groups[key];
-    return `<div class="test-row">
-      <div><b>${escapeHtml(category)} — ${escapeHtml(bottleType)}</b>
-        <div class="muted" style="font-size:11px;">${tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ')}</div>
-      </div>
-      <div><label class="muted" style="font-size:11px;display:block;">Labels to print</label>
-        <input type="number" min="0" value="1" id="qty_${slugify(key)}" style="width:80px;"></div>
-    </div>`;
+    const testsLine = tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ');
+    return renderQtyRow(category, bottleType, null, testsLine, `qty_${slugify(key)}`, 'Labels to print');
   }).join('');
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
@@ -939,13 +949,8 @@ function openReprintDialog(){
   pendingReprintGroups = groups;
   const rows = Object.keys(groups).sort().map(key=>{
     const { category, bottleType, tests, specimenNumber } = groups[key];
-    return `<div class="test-row">
-      <div><b>${escapeHtml(category)} — ${escapeHtml(bottleType)}</b> <span class="mono muted" style="font-size:11px;">${escapeHtml(specimenNumber)}</span>
-        <div class="muted" style="font-size:11px;">${tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ')}</div>
-      </div>
-      <div><label class="muted" style="font-size:11px;display:block;">Copies</label>
-        <input type="number" min="0" value="1" id="rqty_${slugify(key)}" style="width:80px;"></div>
-    </div>`;
+    const testsLine = tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ');
+    return renderQtyRow(category, bottleType, specimenNumber, testsLine, `rqty_${slugify(key)}`, 'Copies');
   }).join('');
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
