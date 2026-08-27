@@ -18,6 +18,7 @@ app.use('/api/his', require('./routes/his'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/specimens', require('./routes/specimens'));
 app.use('/api/categories', require('./routes/categories'));
+app.use('/api/users', require('./routes/users'));
 app.use('/api/tests', require('./routes/tests'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/history', require('./routes/history'));

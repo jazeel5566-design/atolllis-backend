@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireCapability } = require('../middleware/auth');
 const { uid } = require('../utils/id');
 const { needsReferral, referralTarget, generateSpecimenNumber } = require('../utils/domain');
 
@@ -68,7 +68,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // ---------- 1. Memo import (fetch from HIS/Billing) ----------
-router.post('/import', async (req, res) => {
+router.post('/import', requireCapability('collect'), async (req, res) => {
   const { memoNumber } = req.body || {};
   if (!memoNumber) return res.status(400).json({ error: 'memoNumber is required' });
 
@@ -115,7 +115,7 @@ router.post('/import', async (req, res) => {
 });
 
 // Cancel a memo that hasn't been collected yet.
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireCapability('collect'), async (req, res) => {
   const order = await prisma.order.findUnique({ where: { id: req.params.id } });
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
@@ -126,7 +126,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // ---------- 2. Sample Collection (select tests, generate one barcode per specimen bottle) ----------
-router.post('/:id/collect', async (req, res) => {
+router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
   const { selectedCodes } = req.body || {};
   const collectedBy = req.user.name; // the logged-in technologist collecting — not client-supplied
@@ -204,7 +204,7 @@ router.post('/:id/collect', async (req, res) => {
 // Redraw specimens for tests that were rejected at acceptance. The order's own collectedAt/
 // collectedBy (the very first draw for this memo) never changes — only the new specimen(s) get a
 // fresh collection timestamp and collector, same as a normal collect, tracked per-specimen.
-router.post('/:id/recollect', async (req, res) => {
+router.post('/:id/recollect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
   const { testCodes } = req.body || {};
   const collectedBy = req.user.name;
@@ -266,10 +266,9 @@ router.post('/:id/recollect', async (req, res) => {
 });
 
 // ---------- 3. Referral (assigned and sent from Collection) ----------
-router.post('/:id/refer', async (req, res) => {
+router.post('/:id/refer', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
-  const { referredByName } = req.body || {};
-  if (!referredByName) return res.status(400).json({ error: 'referredByName is required' });
+  const referredByName = req.user.name; // who's logged in and clicked Refer — not client-supplied
 
   const order = await prisma.order.findUnique({ where: { id }, include: { tests: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
@@ -303,7 +302,7 @@ router.post('/:id/refer', async (req, res) => {
 // ---------- 4. Sample Acceptance moved to specimens.js — accept/reject is per specimen now ----------
 
 // ---------- 5. Incoming referrals (receiving facility) ----------
-router.post('/:id/receive-referral', async (req, res) => {
+router.post('/:id/receive-referral', requireCapability('process'), async (req, res) => {
   const { id } = req.params;
   await prisma.orderTest.updateMany({
     where: { orderId: id, referred: true, performingFacilityId: req.user.facilityId, status: 'awaiting_receipt' },

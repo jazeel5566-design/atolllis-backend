@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { roleHasCapability } = require('../utils/roles');
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -6,7 +7,7 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Missing bearer token' });
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    // payload: { userId, name, facilityId, tier }
+    // payload: { userId, name, facilityId, tier, role }
     req.user = payload;
     next();
   } catch (e) {
@@ -14,13 +15,15 @@ function requireAuth(req, res, next) {
   }
 }
 
-// Only the Regional Hospital (top of the hierarchy) has admin rights: managing the network of
-// labs and the shared test catalog.
-function requireRegional(req, res, next) {
-  if (!req.user || req.user.tier !== 'regional') {
-    return res.status(403).json({ error: 'Regional Hospital admin rights required for this action' });
-  }
-  next();
+// Role-based access control — replaces the old tier-only check. Each route declares which
+// capability it needs (see src/utils/roles.js for the role → capability map).
+function requireCapability(capability) {
+  return function (req, res, next) {
+    if (!req.user || !roleHasCapability(req.user.role, capability)) {
+      return res.status(403).json({ error: `Your role does not have permission to do this (requires: ${capability})` });
+    }
+    next();
+  };
 }
 
-module.exports = { requireAuth, requireRegional };
+module.exports = { requireAuth, requireCapability };

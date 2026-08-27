@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth, requireRegional } = require('../middleware/auth');
+const { requireAuth, requireCapability } = require('../middleware/auth');
 const { uid } = require('../utils/id');
 
 router.use(requireAuth);
@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
   res.json(categories);
 });
 
-router.post('/', requireRegional, async (req, res) => {
+router.post('/', requireCapability('manage_catalog'), async (req, res) => {
   const { name, letter } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
   const finalLetter = (letter && letter.trim() ? letter.trim() : name.trim()).charAt(0).toUpperCase();
@@ -27,7 +27,7 @@ router.post('/', requireRegional, async (req, res) => {
 });
 
 // Renaming cascades to every test currently filed under the old name, so nothing goes uncategorized.
-router.put('/:id', requireRegional, async (req, res) => {
+router.put('/:id', requireCapability('manage_catalog'), async (req, res) => {
   const { id } = req.params;
   const { name, letter } = req.body || {};
   const existing = await prisma.testCategory.findUnique({ where: { id } });
@@ -55,7 +55,7 @@ router.put('/:id', requireRegional, async (req, res) => {
   res.json(updated);
 });
 
-router.delete('/:id', requireRegional, async (req, res) => {
+router.delete('/:id', requireCapability('manage_catalog'), async (req, res) => {
   const { id } = req.params;
   const category = await prisma.testCategory.findUnique({ where: { id } });
   if (!category) return res.status(404).json({ error: 'Not found' });

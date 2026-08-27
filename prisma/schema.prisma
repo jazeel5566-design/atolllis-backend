@@ -37,6 +37,7 @@ model User {
   name         String
   username     String   // unique together with facility in practice; kept simple for demo
   passwordHash String
+  role         String   @default("technologist") // 'phlebotomist' | 'technologist' | 'pathologist' | 'lab_manager' | 'admin'
   facilityId   String
   facility     Facility @relation(fields: [facilityId], references: [id])
   createdAt    DateTime @default(now())

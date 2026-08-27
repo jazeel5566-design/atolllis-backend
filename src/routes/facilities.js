@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth, requireRegional } = require('../middleware/auth');
+const { requireAuth, requireCapability } = require('../middleware/auth');
 
 router.use(requireAuth);
 
@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
 });
 
 // Only the Regional Hospital can create new Atoll Hospitals or Health Centres.
-router.post('/', requireRegional, async (req, res) => {
+router.post('/', requireCapability('manage_labs'), async (req, res) => {
   const { name, tier, parentAtollId } = req.body || {};
   if (!name || !['atoll', 'health_centre'].includes(tier)) {
     return res.status(400).json({ error: 'name and tier ("atoll" or "health_centre") are required' });
@@ -27,7 +27,7 @@ router.post('/', requireRegional, async (req, res) => {
 });
 
 // Removing an Atoll Hospital re-parents its Health Centres to Regional rather than blocking.
-router.delete('/:id', requireRegional, async (req, res) => {
+router.delete('/:id', requireCapability('manage_labs'), async (req, res) => {
   const { id } = req.params;
   const facility = await prisma.facility.findUnique({ where: { id } });
   if (!facility) return res.status(404).json({ error: 'Not found' });

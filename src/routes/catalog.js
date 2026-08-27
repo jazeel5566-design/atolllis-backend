@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth, requireRegional } = require('../middleware/auth');
+const { requireAuth, requireCapability } = require('../middleware/auth');
 
 router.use(requireAuth);
 
@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
   res.json(tests);
 });
 
-router.post('/', requireRegional, async (req, res) => {
+router.post('/', requireCapability('manage_catalog'), async (req, res) => {
   const { code, name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, refRanges } = req.body || {};
   if (!code || !name) return res.status(400).json({ error: 'code and name are required' });
   const exists = await prisma.testDefinition.findUnique({ where: { code: code.toUpperCase() } });
@@ -36,7 +36,7 @@ router.post('/', requireRegional, async (req, res) => {
   res.status(201).json(created);
 });
 
-router.put('/:code', requireRegional, async (req, res) => {
+router.put('/:code', requireCapability('manage_catalog'), async (req, res) => {
   const { code } = req.params;
   const { name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, refRanges } = req.body || {};
   const exists = await prisma.testDefinition.findUnique({ where: { code } });
@@ -57,7 +57,7 @@ router.put('/:code', requireRegional, async (req, res) => {
   res.json(updated);
 });
 
-router.delete('/:code', requireRegional, async (req, res) => {
+router.delete('/:code', requireCapability('manage_catalog'), async (req, res) => {
   const { code } = req.params;
   const exists = await prisma.testDefinition.findUnique({ where: { code } });
   if (!exists) return res.status(404).json({ error: 'Not found' });

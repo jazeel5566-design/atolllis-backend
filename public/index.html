@@ -225,6 +225,16 @@ const DEFAULT_API_BASE = (location.protocol === 'file:')
 const TIER_LABEL = {health_centre:'Health Centre', atoll:'Atoll Hospital', regional:'Regional Hospital Laboratory (hosts the LIS)'};
 const TIER_SHORT = {health_centre:'Health Centre', atoll:'Atoll Hospital', regional:'Regional Hospital'};
 const TIER_CLASS = {health_centre:'tier-health_centre', atoll:'tier-atoll', regional:'tier-regional'};
+// Mirrors backend src/utils/roles.js — used only to show/hide UI; the backend is the real gate.
+const ROLE_CAPABILITIES = {
+  phlebotomist: ['collect'],
+  technologist: ['collect','accept','process'],
+  pathologist: ['collect','accept','process','certify'],
+  lab_manager: ['collect','accept','process','certify','manage_users'],
+  admin: ['collect','accept','process','certify','manage_users','manage_catalog','manage_labs'],
+};
+const ROLE_LABELS = {phlebotomist:'Phlebotomist', technologist:'Technologist', pathologist:'Pathologist', lab_manager:'Lab Manager', admin:'Administrator'};
+function hasCapability(cap){ return session.user && (ROLE_CAPABILITIES[session.user.role]||[]).includes(cap); }
 
 const NAV_ITEMS = [
   {id:'processflow', label:'Process Flow', icon:'⇉'},
@@ -291,6 +301,16 @@ const api = {
   createCategory: (data) => apiRequest('/categories', {method:'POST', body:data}),
   updateCategory: (id,data) => apiRequest(`/categories/${id}`, {method:'PUT', body:data}),
   deleteCategory: (id) => apiRequest(`/categories/${id}`, {method:'DELETE'}),
+  users: (facilityId) => apiRequest(`/users${facilityId?('?facilityId='+facilityId):''}`),
+  createUser: (data) => apiRequest('/users', {method:'POST', body:data}),
+  updateUser: (id,data) => apiRequest(`/users/${id}`, {method:'PUT', body:data}),
+  deleteUser: (id) => apiRequest(`/users/${id}`, {method:'DELETE'}),
+  changePassword: (currentPassword,newPassword) => apiRequest('/auth/change-password', {method:'POST', body:{currentPassword,newPassword}}),
+  users: (facilityId) => apiRequest(`/users${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
+  createUser: (data) => apiRequest('/users', {method:'POST', body:data}),
+  updateUser: (id,data) => apiRequest(`/users/${id}`, {method:'PUT', body:data}),
+  deleteUser: (id) => apiRequest(`/users/${id}`, {method:'DELETE'}),
+  changePassword: (currentPassword,newPassword) => apiRequest('/auth/change-password', {method:'POST', body:{currentPassword,newPassword}}),
   searchPatients: (query) => apiRequest(`/patients${query?('?query='+encodeURIComponent(query)):''}`),
   createPatient: (data) => apiRequest('/patients', {method:'POST', body:data}),
   importMemo: (memoNumber) => apiRequest('/orders/import', {method:'POST', body:{memoNumber}}),
@@ -301,15 +321,15 @@ const api = {
   cancelMemo: (id) => apiRequest(`/orders/${id}`, {method:'DELETE'}),
   collect: (id, selectedCodes) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes}}),
   recollect: (id, testCodes) => apiRequest(`/orders/${id}/recollect`, {method:'POST', body:{testCodes}}),
-  refer: (id, referredByName) => apiRequest(`/orders/${id}/refer`, {method:'POST', body:{referredByName}}),
+  refer: (id) => apiRequest(`/orders/${id}/refer`, {method:'POST'}),
   receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
   getSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}`),
   loadSpecimenAnalyser: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/load-analyser`, {method:'POST'}),
-  acceptSpecimen: (specimenNumber, acceptedBy) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/accept`, {method:'POST', body:{acceptedBy}}),
+  acceptSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/accept`, {method:'POST'}),
   rejectSpecimen: (specimenNumber, reason) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject`, {method:'POST', body:{reason}}),
   analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
-  certify: (orderId, code, validatedBy) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST', body:{validatedBy}}),
+  certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
   report: (orderId) => apiRequest(`/reports/${orderId}`),
   history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
 };
@@ -318,6 +338,16 @@ const api = {
 function fac(id){ return facilitiesCache.find(f=>f.id===id) || {id, name:id||'Unknown facility', tier:'health_centre'}; }
 function test(code){ return catalogCache.find(t=>t.code===code); }
 function isRegional(){ return session.user && session.user.tier==='regional'; }
+// Mirrors src/utils/roles.js — for UI gating only. The backend is the real enforcement point;
+// this just keeps buttons/nav items from showing up for roles that can't actually use them.
+const ROLE_CAPABILITIES_CLIENT = {
+  phlebotomist: ['collect'],
+  technologist: ['collect','accept','process'],
+  pathologist: ['collect','accept','process','certify'],
+  lab_manager: ['collect','accept','process','certify','manage_users'],
+  admin: ['collect','accept','process','certify','manage_users','manage_catalog','manage_labs'],
+};
+function can(capability){ return session.user && (ROLE_CAPABILITIES_CLIENT[session.user.role]||[]).includes(capability); }
 function calcAge(dob){
   const d = new Date(dob), n = new Date();
   let a = n.getFullYear()-d.getFullYear();
@@ -461,7 +491,7 @@ function renderShell(){
 
   document.getElementById('sidebarFoot').innerHTML = `
     <div class="user-name">${escapeHtml(session.user.name)}</div>
-    <div class="user-facility">${escapeHtml(f.name)}</div>
+    <div class="user-facility">${escapeHtml(session.user.roleLabel || ROLE_LABELS[session.user.role] || session.user.role)}</div>
     <button class="btn btn-sm btn-logout" onclick="doLogout()">Log Out</button>`;
 }
 function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
@@ -680,8 +710,7 @@ function renderReferralPendingBlock(orders, f){
           const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
           return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span><span class="mono muted" style="font-size:11px;">${spec?escapeHtml(spec.specimenNumber):''}</span></div>`;
         }).join('')}
-        <div class="grid grid-2" style="margin-top:10px;align-items:end;">
-          <div class="field" style="margin-bottom:0;"><label>Referred By (staff name)</label><input id="referredBy_${o.id}" placeholder="e.g. Aminath Nazima"></div>
+        <div class="actions-row" style="margin-top:10px;">
           <button class="btn btn-teal" onclick="referOrder('${o.id}')">⇪ Refer higher-level test(s) upward — 1 click</button>
         </div>
       </div>`;
@@ -989,11 +1018,8 @@ function openRecollectDialog(){
   renderPrintDialog();
 }
 async function referOrder(orderId){
-  const nameEl = document.getElementById(`referredBy_${orderId}`);
-  const staffName = nameEl ? nameEl.value.trim() : '';
-  if(!staffName){ showToast('Enter the name of the staff member sending this referral.'); return; }
   await withErrorToast(async ()=>{
-    const result = await api.refer(orderId, staffName);
+    const result = await api.refer(orderId);
     await render();
     showToast(`Referred to ${result.referredTo.join(' & ')} — same order, no duplicate created. Only these test(s) become visible there.`);
   });
@@ -1062,10 +1088,14 @@ function renderAcceptancePanel(s){
     <div class="field"><label>Tests on this specimen</label>
       <div class="checklist">${s.tests.map(t=>`<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span></div>`).join('') || '<p class="muted">No tests on this specimen.</p>'}</div>
     </div>
-    ${s.status==='collected' ? `<div class="actions-row">
-      <button class="btn btn-teal" onclick="acceptSpecimen('${s.specimenNumber}')">Accept Specimen</button>
-      <button class="btn btn-danger" onclick="rejectSpecimen('${s.specimenNumber}')">Reject Specimen</button>
-    </div>` : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}.</p>`}
+    ${s.status==='collected'
+      ? (hasCapability('accept')
+        ? `<div class="actions-row">
+          <button class="btn btn-teal" onclick="acceptSpecimen('${s.specimenNumber}')">Accept Specimen</button>
+          <button class="btn btn-danger" onclick="rejectSpecimen('${s.specimenNumber}')">Reject Specimen</button>
+        </div>`
+        : `<p class="muted" style="font-size:12.5px;">Only a Technologist, Pathologist, or Lab Manager can accept or reject a specimen.</p>`)
+      : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}.</p>`}
   </div>`;
 }
 function renderRejectedLog(rejectedSpecimens){
@@ -1092,10 +1122,8 @@ async function scanSpecimenForAcceptance(){
   });
 }
 async function acceptSpecimen(specimenNumber){
-  const acceptedBy = prompt('Accepting lab officer name:');
-  if(!acceptedBy) return;
   await withErrorToast(async ()=>{
-    acceptanceScanResult = await api.acceptSpecimen(specimenNumber, acceptedBy);
+    acceptanceScanResult = await api.acceptSpecimen(specimenNumber);
     await render();
     showToast('Specimen received into the laboratory.');
   });
@@ -1271,7 +1299,9 @@ function renderValidationTab(orders, f){
       <div class="test-row">
         <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">Entered by ${escapeHtml(t.enteredBy||'—')}, ${fmtDate(t.enteredAt)}</div></div>
         <div><span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
-        <button class="btn btn-sm" onclick="certifyResult('${o.id}','${t.code}')">Validate & Certify</button></div>
+        ${hasCapability('certify')
+          ? `<button class="btn btn-sm" onclick="certifyResult('${o.id}','${t.code}')">Validate & Certify</button>`
+          : `<span class="muted" style="font-size:11.5px;">Only a Pathologist or Lab Manager can certify</span>`}</div>
       </div>
     </div>`;
   }).join('');
@@ -1286,12 +1316,10 @@ async function enterManualResult(orderId, code){
   });
 }
 async function certifyResult(orderId, code){
-  const name = prompt('Validating & certifying lab officer name:');
-  if(!name) return;
   await withErrorToast(async ()=>{
-    await api.certify(orderId, code, name);
+    await api.certify(orderId, code);
     await render();
-    showToast(`Result certified by ${name} — status now Completed.`);
+    showToast(`Result certified by ${session.user.name} — status now Completed.`);
   });
 }
 function renderIncomingTab(orders, f){
@@ -1456,23 +1484,134 @@ async function searchHistory(){
 
 /* ============================= SETTINGS ============================= */
 let settingsTab = 'catalog';
+let usersFacilityFilter = null;
 async function viewSettings(){
   const f = fac(session.user.facilityId);
   return `
     <div class="pagehead"><h1>Settings</h1><p>Configuration for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
       <div class="tab ${settingsTab==='catalog'?'active':''}" onclick="settingsTab='catalog';render();">Test Catalog</div>
-      ${isRegional()? `<div class="tab ${settingsTab==='categories'?'active':''}" onclick="settingsTab='categories';render();">Categories</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='categories'?'active':''}" onclick="settingsTab='categories';render();">Categories</div>`:''}
       <div class="tab ${settingsTab==='patients'?'active':''}" onclick="settingsTab='patients';render();">Patients</div>
-      ${isRegional()? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
+      ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
+      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
+      <div class="tab ${settingsTab==='account'?'active':''}" onclick="settingsTab='account';render();">My Account</div>
       ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
     </div>
     ${settingsTab==='catalog'? viewCatalog()
       : settingsTab==='categories'? viewCategories()
       : settingsTab==='patients'? await viewPatients()
+      : settingsTab==='users'? await viewUsers()
+      : settingsTab==='account'? viewMyAccount()
       : settingsTab==='connection'? await viewConnection()
       : await viewAdmin()}
   `;
+}
+
+/* ---------- My Account (everyone) ---------- */
+function viewMyAccount(){
+  return `<div class="card" style="max-width:420px;">
+    <h2>My Account</h2>
+    <div class="field"><label>Name</label><input value="${escapeHtml(session.user.name)}" readonly style="background:#F7F9FB;color:var(--mute);"></div>
+    <div class="field"><label>Role</label><input value="${escapeHtml(session.user.roleLabel||ROLE_LABELS[session.user.role]||session.user.role)}" readonly style="background:#F7F9FB;color:var(--mute);"></div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+    <h2 style="font-size:14px;">Change Password</h2>
+    <div class="field"><label>Current Password</label><input id="pw_current" type="password"></div>
+    <div class="field"><label>New Password (min. 6 characters)</label><input id="pw_new" type="password"></div>
+    <div class="field"><label>Confirm New Password</label><input id="pw_confirm" type="password"></div>
+    <button class="btn" onclick="changeOwnPassword()">Update Password</button>
+  </div>`;
+}
+async function changeOwnPassword(){
+  const current = document.getElementById('pw_current').value;
+  const next = document.getElementById('pw_new').value;
+  const confirm2 = document.getElementById('pw_confirm').value;
+  if(!current || !next){ showToast('Fill in your current and new password.'); return; }
+  if(next.length<6){ showToast('New password must be at least 6 characters.'); return; }
+  if(next!==confirm2){ showToast('New password and confirmation do not match.'); return; }
+  await withErrorToast(async ()=>{
+    await api.changePassword(current, next);
+    showToast('Password updated.');
+    ['pw_current','pw_new','pw_confirm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  });
+}
+
+/* ---------- Users (Lab Manager / Admin only — manage_users capability) ---------- */
+async function viewUsers(){
+  const isAdmin = session.user.role==='admin';
+  let facilities = [];
+  if(isAdmin) facilities = await api.facilities();
+  const targetFacilityId = isAdmin ? (usersFacilityFilter || session.user.facilityId) : session.user.facilityId;
+  const users = await api.users(isAdmin ? targetFacilityId : undefined);
+  const facilityPicker = isAdmin ? `<div class="field" style="max-width:320px;"><label>Facility</label>
+    <select onchange="usersFacilityFilter=this.value;render();">
+      ${facilities.map(fc=>`<option value="${fc.id}" ${targetFacilityId===fc.id?'selected':''}>${escapeHtml(fc.name)}</option>`).join('')}
+    </select></div>` : '';
+  const rows = users.map(u=>`<tr>
+    <td>${escapeHtml(u.name)}${u.id===session.user.userId?' <span class="muted">(you)</span>':''}</td>
+    <td class="mono">${escapeHtml(u.username)}</td>
+    <td>${escapeHtml(u.roleLabel)}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}','${targetFacilityId}')">Edit</button>
+      ${u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Remove</button>`:''}
+    </td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+      <div>${facilityPicker}</div>
+      <button class="btn" onclick="openUserModal(null,'${targetFacilityId}')">+ New User</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="empty">No users found.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+async function openUserModal(userId, facilityId){
+  const existing = userId ? (await api.users(facilityId)).find(u=>u.id===userId) : null;
+  const isAdmin = session.user.role==='admin';
+  const grantable = isAdmin
+    ? ['phlebotomist','technologist','pathologist','lab_manager','admin']
+    : ['phlebotomist','technologist','pathologist','lab_manager'];
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>${existing?'Edit User':'New User'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Name</label><input id="u_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Aminath Nazima"></div>
+      <div class="field"><label>Username</label><input id="u_username" value="${escapeHtml(existing?.username||'')}" placeholder="e.g. anazima" ${existing?'readonly style="background:#F7F9FB;color:var(--mute);"':''}></div>
+      <div class="field"><label>Role</label>
+        <select id="u_role">${grantable.map(r=>`<option value="${r}" ${existing?.role===r?'selected':''}>${escapeHtml(ROLE_LABELS[r])}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>${existing?'Reset Password (leave blank to keep current)':'Password'}</label><input id="u_password" type="password" placeholder="min. 6 characters"></div>
+      <div class="actions-row"><button class="btn" onclick="saveUser(${existing?`'${existing.id}'`:'null'},'${facilityId}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveUser(userId, facilityId){
+  const name = (document.getElementById('u_name').value||'').trim();
+  const username = (document.getElementById('u_username').value||'').trim();
+  const role = document.getElementById('u_role').value;
+  const password = document.getElementById('u_password').value;
+  if(!name || !username){ showToast('Name and username are required.'); return; }
+  await withErrorToast(async ()=>{
+    if(userId){
+      const data = {name, role};
+      if(password) data.newPassword = password;
+      await api.updateUser(userId, data);
+    }else{
+      if(!password || password.length<6){ showToast('Password must be at least 6 characters.'); return; }
+      await api.createUser({name, username, password, role, facilityId});
+    }
+    closeModal(); await render();
+    showToast('User saved.');
+  });
+}
+async function deleteUser(userId){
+  if(!confirm('Remove this user? This cannot be undone.')) return;
+  await withErrorToast(async ()=>{
+    await api.deleteUser(userId);
+    await render();
+  });
 }
 
 /* ---------- Test Categories (Regional admin only — controls barcode letters) ---------- */

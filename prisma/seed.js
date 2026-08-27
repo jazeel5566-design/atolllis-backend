@@ -12,10 +12,22 @@ async function main() {
   const hc2 = await prisma.facility.create({ data: { id: 'hc2', name: 'Maalhos Health Centre', tier: 'health_centre', parentAtollId: atoll1.id } });
   const hc3 = await prisma.facility.create({ data: { id: 'hc3', name: 'Nilandhoo Health Centre', tier: 'health_centre', parentAtollId: atoll2.id } });
 
-  // ---------- One demo user per facility ----------
+  // ---------- One demo user per facility, plus a few role-specific accounts to try out ----------
   const passwordHash = await bcrypt.hash('password123', 10);
   for (const f of [regional, atoll1, atoll2, hc1, hc2, hc3]) {
-    await prisma.user.create({ data: { name: `${f.name} Technologist`, username: f.id, passwordHash, facilityId: f.id } });
+    // Regional's own login is the system administrator; every other facility's default login is
+    // a Lab Manager, so existing demo credentials keep full local capability after this change.
+    const role = f.id === regional.id ? 'admin' : 'lab_manager';
+    await prisma.user.create({ data: { name: `${f.name} ${role === 'admin' ? 'Administrator' : 'Lab Manager'}`, username: f.id, passwordHash, role, facilityId: f.id } });
+  }
+  // Extra accounts at Thundufushi HC to demonstrate role differences without extra facilities.
+  const demoRoles = [
+    { username: 'hc1_phleb', name: 'Thundufushi Phlebotomist Demo', role: 'phlebotomist' },
+    { username: 'hc1_tech', name: 'Thundufushi Technologist Demo', role: 'technologist' },
+    { username: 'hc1_path', name: 'Thundufushi Pathologist Demo', role: 'pathologist' },
+  ];
+  for (const d of demoRoles) {
+    await prisma.user.create({ data: { name: d.name, username: d.username, passwordHash, role: d.role, facilityId: hc1.id } });
   }
 
   // ---------- Test categories (managed list — controls barcode letters) ----------
@@ -60,13 +72,17 @@ async function main() {
   await prisma.mockHisMemo.create({ data: { memoNumber: 'HIS-2026-004900', source: 'HIS', orderedBy: 'Dr. Mariyam Nazly', patientName: p3.name, patientIdNumber: p3.idNumber, patientHospitalNumber: p3.hospitalNumber, patientDob: p3.dob, patientSex: p3.sex, patientAddress: p3.address, testCodes: JSON.stringify(['TSH', 'HBA1C']) } });
 
   console.log('\nSeed complete.\n');
-  console.log('Demo logins (facility / username / password):');
-  console.log('  Regional Hospital : reg1   / reg1   / password123');
-  console.log('  Ari Atoll Hospital: atoll1 / atoll1 / password123');
-  console.log('  Faafu Atoll Hosp. : atoll2 / atoll2 / password123');
-  console.log('  Thundufushi HC    : hc1    / hc1    / password123');
-  console.log('  Maalhos HC        : hc2    / hc2    / password123');
-  console.log('  Nilandhoo HC      : hc3    / hc3    / password123');
+  console.log('Demo logins (facility / username / password / role):');
+  console.log('  Regional Hospital : reg1   / reg1   / password123 / admin');
+  console.log('  Ari Atoll Hospital: atoll1 / atoll1 / password123 / lab_manager');
+  console.log('  Faafu Atoll Hosp. : atoll2 / atoll2 / password123 / lab_manager');
+  console.log('  Thundufushi HC    : hc1    / hc1    / password123 / lab_manager');
+  console.log('  Maalhos HC        : hc2    / hc2    / password123 / lab_manager');
+  console.log('  Nilandhoo HC      : hc3    / hc3    / password123 / lab_manager');
+  console.log('\nExtra role demo accounts, all at Thundufushi HC (facility "hc1"):');
+  console.log('  hc1_phleb / password123 / phlebotomist');
+  console.log('  hc1_tech  / password123 / technologist');
+  console.log('  hc1_path  / password123 / pathologist');
   console.log('\nTry-it memo numbers: HIS-2026-004821, BILL-2026-071190, HIS-2026-004900\n');
 }
 

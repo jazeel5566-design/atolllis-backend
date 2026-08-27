@@ -1,12 +1,12 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireCapability } = require('../middleware/auth');
 
 router.use(requireAuth);
 
 // Simulated bidirectional interface: the LIS only accepts a result from the analyser if its unit
 // matches the unit defined for that test in the catalog.
-router.post('/:orderId/:code/analyser-result', async (req, res) => {
+router.post('/:orderId/:code/analyser-result', requireCapability('process'), async (req, res) => {
   const { orderId, code } = req.params;
   const { value, unit } = req.body || {};
   if (value === undefined || value === '' || !unit) return res.status(400).json({ error: 'value and unit are required' });
@@ -29,7 +29,7 @@ router.post('/:orderId/:code/analyser-result', async (req, res) => {
 });
 
 // Manual entry path (skips the analyser) — unit is fixed to the catalog default, so no mismatch is possible.
-router.post('/:orderId/:code/manual-result', async (req, res) => {
+router.post('/:orderId/:code/manual-result', requireCapability('process'), async (req, res) => {
   const { orderId, code } = req.params;
   const { value } = req.body || {};
   if (value === undefined || value === '') return res.status(400).json({ error: 'value is required' });
@@ -47,10 +47,9 @@ router.post('/:orderId/:code/manual-result', async (req, res) => {
 });
 
 // Validate & certify — done only by the facility that actually performed the test.
-router.post('/:orderId/:code/certify', async (req, res) => {
+router.post('/:orderId/:code/certify', requireCapability('certify'), async (req, res) => {
   const { orderId, code } = req.params;
-  const { validatedBy } = req.body || {};
-  if (!validatedBy) return res.status(400).json({ error: 'validatedBy is required' });
+  const validatedBy = req.user.name; // the certifying pathologist/lab manager — not client-supplied
 
   const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
   if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
