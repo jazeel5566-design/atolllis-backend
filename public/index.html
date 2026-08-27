@@ -294,6 +294,7 @@ const api = {
   searchPatients: (query) => apiRequest(`/patients${query?('?query='+encodeURIComponent(query)):''}`),
   createPatient: (data) => apiRequest('/patients', {method:'POST', body:data}),
   importMemo: (memoNumber) => apiRequest('/orders/import', {method:'POST', body:{memoNumber}}),
+  searchHis: (query) => apiRequest(`/his/search?query=${encodeURIComponent(query)}`),
   seedHisMemo: (data) => apiRequest('/his/memos', {method:'POST', body:data}),
   orders: (stage) => apiRequest(`/orders${stage?('?stage='+stage):''}`),
   order: (id) => apiRequest(`/orders/${id}`),
@@ -589,6 +590,7 @@ let worklistSearch = '';
 let collectionOpenOrderId = null;
 let collectionOpenOrder = null;
 let memoFetchStatus = null;
+let memoSearchMatches = null;
 let memoFetchError = '';
 let pendingCollect = null;
 let pendingReprintGroups = null;
@@ -599,8 +601,8 @@ async function viewCollectionPage(){
     <div class="pagehead"><h1>Sample Collection</h1><p>${escapeHtml(f.name)} — fetch a memo from the HIS or Billing system, then collect.</p></div>
     <div class="card">
       <div class="field" style="max-width:440px;margin-bottom:0;">
-        <label>Memo Number — type it, or scan the barcode on the memo</label>
-        <input id="memoFetchField" placeholder="e.g. HIS-2026-004821" autocomplete="off"
+        <label>Memo Number, Hospital No., or ID No. — type it, or scan the barcode on the memo</label>
+        <input id="memoFetchField" placeholder="e.g. HIS-2026-004821, H-00981, or A123456" autocomplete="off"
           onkeydown="if(event.key==='Enter'){event.preventDefault();fetchMemo();}">
       </div>
       ${memoFetchStatus==='loading'? `<p class="muted" style="font-size:12.5px;margin-top:8px;">Contacting HIS/Billing system…</p>`:''}
@@ -612,6 +614,21 @@ async function viewCollectionPage(){
     try{ order = await api.order(collectionOpenOrderId); collectionOpenOrder = order; }
     catch(e){ collectionOpenOrderId=null; collectionOpenOrder=null; showToast(e.message); return header + await renderCollectionQueue(f); }
     return header + renderCollectionPanel(order, f);
+  }
+
+  if(memoSearchMatches && memoSearchMatches.length>1){
+    const matchesHtml = `<div class="card">
+      <h2>Multiple memos found</h2>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">More than one memo matched — select the right one.</p>
+      ${memoSearchMatches.map(m=>`<div class="order-card" style="cursor:pointer;" onclick="loadMemoByNumber('${escapeHtml(m.memoNumber)}')">
+        <div class="order-card-head">
+          <div><span class="order-id">${escapeHtml(m.memoNumber)}</span> <span class="pill pill-grey">${escapeHtml(m.source)}</span> — ${escapeHtml(m.patientName)} <span class="muted">(Hospital No. ${escapeHtml(m.patientHospitalNumber||'—')})</span>
+            <div class="muted" style="font-size:11.5px;">${(m.testCodes||[]).join(', ')} · Ordered by ${escapeHtml(m.orderedBy)}</div>
+          </div>
+        </div>
+      </div>`).join('')}
+    </div>`;
+    return header + matchesHtml;
   }
 
   const [referralPending, queueHtml] = await Promise.all([api.orders('referral_pending'), renderCollectionQueue(f)]);
@@ -760,11 +777,34 @@ function needsReferralClient(tc, f){
 async function fetchMemo(){
   const el = document.getElementById('memoFetchField');
   const num = (el.value||'').trim();
-  if(!num){ showToast('Enter or scan a memo number.'); return; }
+  if(!num){ showToast('Enter or scan a memo number, Hospital No., or ID No.'); return; }
+  memoFetchStatus = 'loading'; memoFetchError = ''; memoSearchMatches = null; await render();
+  try{
+    const { matches } = await api.searchHis(num);
+    if(!matches.length){
+      memoFetchStatus = 'error'; memoFetchError = `No memo found in the HIS/Billing system for "${num}".`;
+      await render();
+      const el2 = document.getElementById('memoFetchField'); if(el2){ el2.value = num; el2.focus(); }
+      return;
+    }
+    if(matches.length===1){
+      await loadMemoByNumber(matches[0].memoNumber);
+      return;
+    }
+    memoFetchStatus = null; memoFetchError = '';
+    memoSearchMatches = matches;
+    await render();
+  }catch(e){
+    memoFetchStatus = 'error'; memoFetchError = e.message;
+    await render();
+    const el2 = document.getElementById('memoFetchField'); if(el2){ el2.value = num; el2.focus(); }
+  }
+}
+async function loadMemoByNumber(memoNumber){
   memoFetchStatus = 'loading'; memoFetchError = ''; await render();
   try{
-    const order = await api.importMemo(num);
-    memoFetchStatus = null; memoFetchError = '';
+    const order = await api.importMemo(memoNumber);
+    memoFetchStatus = null; memoFetchError = ''; memoSearchMatches = null;
     collectionOpenOrderId = order.id; collectionOpenOrder = order;
     await render();
     showToast(order.sampleStatus
@@ -773,7 +813,6 @@ async function fetchMemo(){
   }catch(e){
     memoFetchStatus = 'error'; memoFetchError = e.message;
     await render();
-    const el2 = document.getElementById('memoFetchField'); if(el2){ el2.value = num; el2.focus(); }
   }
 }
 async function cancelMemo(orderId){
