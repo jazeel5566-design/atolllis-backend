@@ -197,6 +197,7 @@
     <div class="brand">
       <div class="mark">Atoll<span>LIS</span></div>
       <div class="sub">Laboratory Information System</div>
+      <div id="sidebarFacility" style="margin-top:10px;"></div>
     </div>
     <nav id="nav"></nav>
     <div class="sidebar-foot" id="sidebarFoot"></div>
@@ -205,7 +206,6 @@
     <div class="topbar">
       <div class="topbar-row">
         <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
-        <div id="topbarLeft" style="flex:1;min-width:0;"></div>
       </div>
     </div>
     <div class="content" id="content"></div>
@@ -455,7 +455,7 @@ function renderShell(){
   navEl.innerHTML = NAV_ITEMS.map(n=>`<button class="${state.activeView===n.id?'active':''}" onclick="goTo('${n.id}')"><span class="navicon">${n.icon}</span>${n.label}</button>`).join('');
 
   const f = fac(session.user.facilityId);
-  document.getElementById('topbarLeft').innerHTML = `<h1 style="font-size:16px;">${escapeHtml(f.name)}</h1><span class="tier-badge ${TIER_CLASS[f.tier]}">${TIER_LABEL[f.tier]||f.tier}</span>`;
+  document.getElementById('sidebarFacility').innerHTML = `<div style="font-size:12.5px;font-weight:600;color:#fff;">${escapeHtml(f.name)}</div><span class="tier-badge ${TIER_CLASS[f.tier]}" style="margin-top:4px;display:inline-block;">${TIER_LABEL[f.tier]||f.tier}</span>`;
 
   document.getElementById('sidebarFoot').innerHTML = `
     <div class="user-name">${escapeHtml(session.user.name)}</div>
@@ -579,7 +579,7 @@ async function loadDemoMemo(){
     });
     state.activeView='collection'; await render();
     const el = document.getElementById('memoFetchField'); if(el){ el.value = memoNumber; el.focus(); }
-    showToast(`A new memo, ${memoNumber}, is now available from the HIS — press "Fetch from HIS / Billing" to pull it in.`);
+    showToast(`A new memo, ${memoNumber}, is now available from the HIS — press Enter in the Memo Number field to pull it in.`);
   });
 }
 
@@ -596,15 +596,13 @@ async function viewCollectionPage(){
   const header = `
     <div class="pagehead"><h1>Sample Collection</h1><p>${escapeHtml(f.name)} — fetch a memo from the HIS or Billing system, then collect.</p></div>
     <div class="card">
-      <div class="field" style="max-width:440px;margin-bottom:8px;">
+      <div class="field" style="max-width:440px;margin-bottom:0;">
         <label>Memo Number — type it, or scan the barcode on the memo</label>
         <input id="memoFetchField" placeholder="e.g. HIS-2026-004821" autocomplete="off"
           onkeydown="if(event.key==='Enter'){event.preventDefault();fetchMemo();}">
       </div>
-      <button class="btn" onclick="fetchMemo()">Fetch from HIS / Billing</button>
       ${memoFetchStatus==='loading'? `<p class="muted" style="font-size:12.5px;margin-top:8px;">Contacting HIS/Billing system…</p>`:''}
       ${memoFetchStatus==='error'? `<p style="color:var(--crimson);font-size:12.5px;margin-top:8px;">${escapeHtml(memoFetchError)}</p>`:''}
-      <p class="muted" style="font-size:11px;margin-top:10px;">Memos are created in the HIS — or Billing, if no HIS is available — not in this app.</p>
     </div>`;
 
   if(collectionOpenOrderId){
@@ -687,26 +685,37 @@ function renderCollectionPanel(o, f){
     </div>
     <div class="field" style="margin-top:14px;">
       <label>Tests — selected by default; deselect any not being collected now</label>
-      <div class="actions-row" style="margin-bottom:6px;">
+      <div class="actions-row" style="margin-bottom:8px;">
         <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=true);">Select All</button>
         <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('input[name=collectTest]').forEach(cb=>cb.checked=false);">Deselect All</button>
       </div>
-      <div class="checklist">
-        ${o.tests.map(t=>{
-          const tc = test(t.code);
-          return `<label class="check-item" style="cursor:pointer;">
-          <input type="checkbox" name="collectTest" value="${t.code}" checked style="margin-top:2px;">
-          <span><b>${escapeHtml(t.name)}</b> <span class="mono muted">(${t.code})</span>
-          <div class="muted" style="font-size:11.5px;">${escapeHtml(tc?.category||'')} · ${escapeHtml(tc?.specimenType||'')} · min. level: ${TIER_SHORT[tc?.minTier]||'—'}</div></span>
-        </label>`;
-        }).join('')}
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;">
+        <table>
+          <thead><tr><th></th><th>Test Code</th><th>Test Name</th><th>Category</th><th>Sample Type</th></tr></thead>
+          <tbody>
+            ${o.tests.map(t=>{
+              const tc = test(t.code);
+              const ref = tc ? needsReferralClient(tc, f) : false;
+              return `<tr>
+                <td><input type="checkbox" name="collectTest" value="${t.code}" checked></td>
+                <td class="mono">${t.code}</td>
+                <td>${escapeHtml(t.name)}${ref? `<div class="muted" style="font-size:11px;">Requires referral</div>`:''}</td>
+                <td>${escapeHtml(tc?.category||'—')}</td>
+                <td>${escapeHtml(tc?.specimenType||'—')}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
       </div>
-    </div>
-    <div class="field"><label>Collected By (Phlebotomist / Technologist)</label>
-      <input id="collectedByName" placeholder="e.g. Aminath Nazima">
     </div>
     <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect Sample</button></div>
   </div>`;
+}
+// Client-side mirror of the backend's tier check, just for the "Requires referral" hint here —
+// the backend is the actual source of truth for whether a test gets referred at collect time.
+function needsReferralClient(tc, f){
+  const TIER_RANK_CLIENT = {health_centre:1, atoll:2, regional:3};
+  return TIER_RANK_CLIENT[f.tier] < TIER_RANK_CLIENT[tc.minTier];
 }
 async function fetchMemo(){
   const el = document.getElementById('memoFetchField');
@@ -746,8 +755,8 @@ function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+
 function openPrintDialog(){
   const selected = Array.from(document.querySelectorAll('input[name="collectTest"]:checked')).map(el=>el.value);
   if(!selected.length && !confirm('No tests selected — collect an empty sample anyway?')) return;
-  const collectedBy = (document.getElementById('collectedByName').value||'').trim();
-  if(!collectedBy){ showToast('Enter the name of the phlebotomist / technologist collecting this sample.'); return; }
+  const collectedBy = prompt('Phlebotomist / technologist collecting this sample:');
+  if(!collectedBy || !collectedBy.trim()) return;
 
   const groups = {}; // "category||bottleType" -> {category, bottleType, tests:[{code,name}]}
   selected.forEach(code=>{
@@ -759,7 +768,7 @@ function openPrintDialog(){
     (groups[key] = groups[key] || {category, bottleType, tests:[]}).tests.push({code, name: testName});
   });
 
-  pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: selected, collectedBy, groups };
+  pendingCollect = { orderId: collectionOpenOrderId, selectedCodes: selected, collectedBy: collectedBy.trim(), groups };
   if(!Object.keys(groups).length){ confirmCollectAndPrint(); return; } // nothing selected — skip straight to collect
   renderPrintDialog();
 }
