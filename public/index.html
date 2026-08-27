@@ -1820,6 +1820,9 @@ async function viewConnection(){
   let health = null, healthError = '';
   try{ health = await apiRequest('/health', {auth:false}); }
   catch(e){ healthError = e.message; }
+  let detected = null, detectError = '';
+  try{ detected = await api.detectFacility(); }
+  catch(e){ detectError = e.message; }
   return `
     <div class="card">
       <h2>Backend Connection</h2>
@@ -1829,6 +1832,17 @@ async function viewConnection(){
         ${health? `<span class="pill pill-teal">Connected — ${escapeHtml(health.service||'OK')}</span>` : `<span class="pill pill-crimson">Unreachable — ${escapeHtml(healthError)}</span>`}
       </div>
       <button class="btn btn-outline btn-sm" onclick="render()">Re-check</button>
+    </div>
+    <div class="card">
+      <h2>Network → Facility Resolution</h2>
+      <p class="muted" style="font-size:12.5px;">What this device's current network resolves to at login — same check the login screen uses. Manage the mappings under Settings → Network Mapping.</p>
+      <div class="field"><label>Detected Facility</label>
+        ${detectError? `<span class="pill pill-crimson">Could not check — ${escapeHtml(detectError)}</span>`
+          : detected && detected.facilityId
+            ? `<span class="pill pill-teal">${escapeHtml(detected.facilityName)}</span>`
+            : `<span class="pill pill-amber">No facility mapped to this network — manual picker shown at login</span>`}
+      </div>
+      ${detected && detected.ip? `<div class="field"><label>Detected IP</label><input value="${escapeHtml(detected.ip)}" readonly style="background:#F7F9FB;color:var(--mute);"></div>`:''}
     </div>
   `;
 }
