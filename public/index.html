@@ -634,7 +634,7 @@ async function viewDashboard(){
       ${awaitingReferAction? `<div class="card"><h2>Action needed</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${awaitingReferAction} order(s) have higher-level tests ready to be referred upward — assign and send from Sample Collection.</p><button class="btn btn-sm" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
       ${incoming.length? `<div class="card"><h2>Incoming referrals</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${incomingAwaitingReceipt} in transit to this lab.</p><button class="btn btn-sm" onclick="goToProcessing('incoming')">Open Result Processing →</button></div>`:''}
     </div>`:''}
-    ${!anyOrders? `<div class="card empty"><div class="big">🧪</div><h2>No activity yet</h2><p>Generate a memo, or load a walk-through demo memo and step it through Collection (incl. referral) → Acceptance → Analyser → Validation yourself.</p><button class="btn" style="margin-top:8px;" onclick="loadDemoMemo()">Load demo memo</button></div>`:''}
+    ${!anyOrders? `<div class="card empty"><div class="big">🧪</div><h2>No activity yet</h2><p>Fetch a memo from the HIS to get started, or (if you're an Admin) create a test memo from Sample Collection to try the system out.</p><button class="btn" style="margin-top:8px;" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
     <div class="card">
       <h2>The sample-processing pipeline</h2>
       <ol style="margin:0;padding-left:18px;font-size:13px;color:var(--mute);line-height:1.9;">
@@ -648,19 +648,7 @@ async function viewDashboard(){
     </div>
   `;
 }
-async function loadDemoMemo(){
-  await withErrorToast(async ()=>{
-    const memoNumber = 'HIS-DEMO-' + Math.floor(1000+Math.random()*9000);
-    await api.seedHisMemo({
-      memoNumber, source:'HIS', orderedBy:'Dr. Ibrahim Shaan',
-      patient:{ name:'Mohamed Rasheed', idNumber:'A234567', hospitalNumber:'H-01452', dob:'1975-11-02', sex:'M', address:'Maalhos, Ari Atoll' },
-      tests:['GLU','CREA','CA125'],
-    });
-    state.activeView='collection'; await render();
-    const el = document.getElementById('memoFetchField'); if(el){ el.value = memoNumber; el.focus(); }
-    showToast(`A new memo, ${memoNumber}, is now available from the HIS — press Enter in the Memo Number field to pull it in.`);
-  });
-}
+
 
 /* ============================= SAMPLE COLLECTION ============================= */
 let worklistSearch = '';
@@ -684,6 +672,7 @@ async function viewCollectionPage(){
       </div>
       ${memoFetchStatus==='loading'? `<p class="muted" style="font-size:12.5px;margin-top:8px;">Contacting HIS/Billing system…</p>`:''}
       ${memoFetchStatus==='error'? `<p style="color:var(--crimson);font-size:12.5px;margin-top:8px;">${escapeHtml(memoFetchError)}</p>`:''}
+      ${session.user.role==='admin'? `<p class="muted" style="font-size:11.5px;margin-top:10px;">Testing the system? <a href="#" onclick="event.preventDefault();openCreateTestMemoModal();" style="color:var(--teal);">Create a test memo</a> with real patient and test fields, the way the HIS would send one.</p>`:''}
     </div>`;
 
   if(collectionOpenOrderId){
@@ -842,6 +831,88 @@ function needsReferralClient(tc, f){
   const TIER_RANK_CLIENT = {health_centre:1, atoll:2, regional:3};
   return TIER_RANK_CLIENT[f.tier] < TIER_RANK_CLIENT[tc.minTier];
 }
+/* ---------- Create Test Memo (Admin only) — for exercising the system without a real HIS ---------- */
+let testMemoSearch = '';
+let testMemoSelected = new Set();
+function openCreateTestMemoModal(){
+  testMemoSearch = '';
+  testMemoSelected = new Set();
+  renderCreateTestMemoModal();
+}
+function renderCreateTestMemoModal(){
+  const q = testMemoSearch.trim().toLowerCase();
+  const filtered = q ? catalogCache.filter(t=>(t.name||'').toLowerCase().includes(q) || (t.code||'').toLowerCase().includes(q)) : catalogCache;
+  const suggestedMemoNumber = 'HIS-TEST-' + Math.floor(100000+Math.random()*900000);
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-head"><h2>Create Test Memo</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Creates a memo in the mock HIS/Billing system, exactly like a real one — fetch it from Sample Collection afterward the normal way.</p>
+      <div class="grid grid-2">
+        <div class="field"><label>Memo Number</label><input id="tm_memoNumber" value="${suggestedMemoNumber}"></div>
+        <div class="field"><label>Source</label><select id="tm_source"><option value="HIS">HIS</option><option value="Billing">Billing</option></select></div>
+      </div>
+      <div class="field"><label>Ordering Clinician</label><input id="tm_orderedBy" placeholder="e.g. Dr. Ibrahim Shaan"></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+      <div class="grid grid-2">
+        <div class="field"><label>Patient Name</label><input id="tm_name" placeholder="e.g. Mohamed Rasheed"></div>
+        <div class="field"><label>Sex</label><select id="tm_sex"><option value="M">Male</option><option value="F">Female</option></select></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Hospital Number</label><input id="tm_hospitalNumber" placeholder="e.g. H-01452"></div>
+        <div class="field"><label>ID Number</label><input id="tm_idNumber" placeholder="e.g. A234567"></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Date of Birth</label><input id="tm_dob" type="date"></div>
+        <div class="field"><label>Address</label><input id="tm_address" placeholder="e.g. Maalhos, Ari Atoll"></div>
+      </div>
+      <div class="field"><label>Tests <span class="muted" style="font-weight:400;">(${testMemoSelected.size} selected)</span></label>
+        <input id="tm_test_search" value="${escapeHtml(testMemoSearch)}" placeholder="Search by name or code…" style="margin-bottom:8px;"
+          oninput="testMemoSearch=this.value;renderCreateTestMemoModal();const el=document.getElementById('tm_test_search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}">
+        <div class="checklist">
+          ${filtered.map(t=>`<label class="check-item" style="cursor:pointer;">
+            <input type="checkbox" ${testMemoSelected.has(t.code)?'checked':''} onchange="toggleTestMemoTest('${t.code}',this.checked)">
+            <span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span>
+          </label>`).join('') || '<p class="muted" style="padding:8px;">No matching tests.</p>'}
+        </div>
+      </div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="saveCreateTestMemo()">Create Memo</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+function toggleTestMemoTest(code, checked){
+  if(checked) testMemoSelected.add(code); else testMemoSelected.delete(code);
+}
+async function saveCreateTestMemo(){
+  const memoNumber = (document.getElementById('tm_memoNumber').value||'').trim();
+  const source = document.getElementById('tm_source').value;
+  const orderedBy = (document.getElementById('tm_orderedBy').value||'').trim();
+  const name = (document.getElementById('tm_name').value||'').trim();
+  const sex = document.getElementById('tm_sex').value;
+  const hospitalNumber = (document.getElementById('tm_hospitalNumber').value||'').trim();
+  const idNumber = (document.getElementById('tm_idNumber').value||'').trim();
+  const dob = document.getElementById('tm_dob').value;
+  const address = (document.getElementById('tm_address').value||'').trim();
+  const tests = Array.from(testMemoSelected);
+
+  if(!memoNumber){ showToast('Enter a memo number.'); return; }
+  if(!orderedBy){ showToast('Enter the ordering clinician.'); return; }
+  if(!name || !dob){ showToast('Patient name and date of birth are required.'); return; }
+  if(!tests.length){ showToast('Select at least one test.'); return; }
+
+  await withErrorToast(async ()=>{
+    await api.seedHisMemo({
+      memoNumber, source, orderedBy,
+      patient: { name, idNumber, hospitalNumber, dob, sex, address },
+      tests,
+    });
+    closeModal();
+    const el = document.getElementById('memoFetchField');
+    if(el){ el.value = memoNumber; el.focus(); }
+    showToast(`Memo ${memoNumber} created — press Enter in the Memo Number field to fetch it.`);
+  });
+}
+
 async function fetchMemo(){
   const el = document.getElementById('memoFetchField');
   const num = (el.value||'').trim();
