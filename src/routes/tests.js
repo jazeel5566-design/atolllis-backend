@@ -2,6 +2,7 @@ const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { uid } = require('../utils/id');
 
 router.use(requireAuth);
 
@@ -63,7 +64,64 @@ router.post('/:orderId/:code/certify', requireCapability('certify'), async (req,
     data: { status: 'completed', validatedBy, validatedAt: new Date() },
   });
   await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified` });
-  res.json(updated);
+
+  // Reflex suggestions — never auto-ordered. Just surfaced here for the certifying staff to act
+  // on with one click if they agree; adding one still requires a real specimen draw afterward,
+  // same as any other test.
+  let reflexSuggestions = [];
+  const numericValue = parseFloat(updated.value);
+  if (!Number.isNaN(numericValue)) {
+    const rules = await prisma.reflexRule.findMany({ where: { triggerTestCode: code, enabled: true } });
+    const matched = rules.filter(r => {
+      switch (r.condition) {
+        case '>': return numericValue > r.thresholdValue;
+        case '<': return numericValue < r.thresholdValue;
+        case '>=': return numericValue >= r.thresholdValue;
+        case '<=': return numericValue <= r.thresholdValue;
+        case '==': return numericValue === r.thresholdValue;
+        default: return false;
+      }
+    });
+    if (matched.length) {
+      const resultCodes = matched.map(r => r.resultTestCode);
+      const [alreadyOnOrder, resultTests] = await Promise.all([
+        prisma.orderTest.findMany({ where: { orderId, code: { in: resultCodes } } }),
+        prisma.testDefinition.findMany({ where: { code: { in: resultCodes } } }),
+      ]);
+      reflexSuggestions = matched
+        .filter(r => !alreadyOnOrder.some(t2 => t2.code === r.resultTestCode)) // don't suggest something already on the order
+        .map(r => {
+          const rt = resultTests.find(x => x.code === r.resultTestCode);
+          return { ruleId: r.id, name: r.name, resultTestCode: r.resultTestCode, resultTestName: rt ? rt.name : r.resultTestCode, reason: `${code} ${r.condition} ${r.thresholdValue}` };
+        });
+    }
+  }
+
+  res.json({ ...updated, reflexSuggestions });
+});
+
+// Adds a reflex-suggested test to an already-existing order, as a fresh 'ordered' test — it still
+// needs a real specimen collected for it afterward, same as any other test on the order.
+router.post('/:orderId/add-reflex-test', requireCapability('collect'), async (req, res) => {
+  const { orderId } = req.params;
+  const { code } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'code is required' });
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) return res.status(404).json({ error: 'Not found' });
+  if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
+
+  const existing = await prisma.orderTest.findFirst({ where: { orderId, code } });
+  if (existing) return res.status(409).json({ error: 'This test is already on the order' });
+
+  const tc = await prisma.testDefinition.findUnique({ where: { code } });
+  if (!tc) return res.status(404).json({ error: 'Unknown test code' });
+
+  const newTest = await prisma.orderTest.create({
+    data: { id: uid('OT'), orderId, code, name: tc.name, performingFacilityId: req.user.facilityId, status: 'ordered' },
+  });
+  await logAudit(req.user, { action: 'reflex_test_added', entityType: 'OrderTest', entityId: newTest.id, details: `Added ${code} (${tc.name}) via reflex rule to order ${order.memoNumber}` });
+  res.status(201).json(newTest);
 });
 
 module.exports = router;

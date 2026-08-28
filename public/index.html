@@ -314,8 +314,6 @@ const api = {
   grantFacilityAccess: (userId,facilityId) => apiRequest(`/users/${userId}/facility-access`, {method:'POST', body:{facilityId}}),
   revokeFacilityAccess: (userId,facilityId) => apiRequest(`/users/${userId}/facility-access/${facilityId}`, {method:'DELETE'}),
   auditLog: (params) => apiRequest(`/audit${params?('?'+params):''}`),
-  searchPatients: (query) => apiRequest(`/patients${query?('?query='+encodeURIComponent(query)):''}`),
-  createPatient: (data) => apiRequest('/patients', {method:'POST', body:data}),
   importMemo: (memoNumber) => apiRequest('/orders/import', {method:'POST', body:{memoNumber}}),
   searchHis: (query) => apiRequest(`/his/search?query=${encodeURIComponent(query)}`),
   seedHisMemo: (data) => apiRequest('/his/memos', {method:'POST', body:data}),
@@ -333,6 +331,18 @@ const api = {
   analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
   certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
+  addReflexTest: (orderId, code) => apiRequest(`/tests/${orderId}/add-reflex-test`, {method:'POST', body:{code}}),
+  testAliases: () => apiRequest('/test-aliases'),
+  createTestAlias: (data) => apiRequest('/test-aliases', {method:'POST', body:data}),
+  deleteTestAlias: (id) => apiRequest(`/test-aliases/${id}`, {method:'DELETE'}),
+  testPanels: () => apiRequest('/test-panels'),
+  createTestPanel: (data) => apiRequest('/test-panels', {method:'POST', body:data}),
+  updateTestPanel: (id,data) => apiRequest(`/test-panels/${id}`, {method:'PUT', body:data}),
+  deleteTestPanel: (id) => apiRequest(`/test-panels/${id}`, {method:'DELETE'}),
+  reflexRules: () => apiRequest('/reflex-rules'),
+  createReflexRule: (data) => apiRequest('/reflex-rules', {method:'POST', body:data}),
+  updateReflexRule: (id,data) => apiRequest(`/reflex-rules/${id}`, {method:'PUT', body:data}),
+  deleteReflexRule: (id) => apiRequest(`/reflex-rules/${id}`, {method:'DELETE'}),
   report: (orderId) => apiRequest(`/reports/${orderId}`),
   history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
 };
@@ -688,19 +698,8 @@ async function viewCollectionPage(){
   return header + (referralPending.length ? renderReferralPendingBlock(referralPending, f) : '') + queueHtml;
 }
 async function renderCollectionQueue(f){
-  const q = worklistSearch.trim().toLowerCase();
   const orders = await api.orders('pending_collection');
-  const filtered = q ? orders.filter(o=>{
-    const p = o.patient;
-    return (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
-  }) : orders;
-  const searchHtml = `<div class="card">
-    <h2 style="margin-bottom:8px;">Fetched, Awaiting Collection</h2>
-    <div class="field" style="max-width:440px;margin-bottom:0;">
-      <label>Filter this queue by Hospital No., ID No., or Name</label>
-      <input id="collSearch" value="${escapeHtml(worklistSearch)}" placeholder="Type or paste…"
-        oninput="worklistSearch=this.value;render();const el=document.getElementById('collSearch');if(el)el.focus();"></div></div>`;
-  const listHtml = filtered.length ? filtered.map(o=>{
+  const listHtml = orders.length ? orders.map(o=>{
     const p = o.patient;
     return `<div class="order-card" style="cursor:pointer;" onclick="collectionOpenOrderId='${o.id}';render();">
       <div class="order-card-head">
@@ -714,8 +713,8 @@ async function renderCollectionQueue(f){
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="card empty"><div class="big">🧾</div>${q? 'No matching memo awaiting collection.' : 'No memos awaiting collection — fetch one by number above.'}</div>`;
-  return searchHtml + listHtml;
+  }).join('') : `<div class="card empty"><div class="big">🧾</div>No memos awaiting collection — fetch one by number above.</div>`;
+  return listHtml;
 }
 function renderReferralPendingBlock(orders, f){
   return `<div class="card">
@@ -788,8 +787,10 @@ function renderCollectionPanel(o, f){
     </div>`;
   }
 
-  // Already collected — read-only status view. Reprint existing labels, or recollect anything rejected.
+  // Already collected — read-only status view. Reprint existing labels, recollect anything
+  // rejected, or collect anything newly added since (e.g. a reflex-suggested test).
   const rejectedTests = o.tests.filter(t=>t.status==='rejected');
+  const newlyAddedTests = o.tests.filter(t=>t.status==='ordered');
   const activeSpecimens = (o.specimens||[]).filter(s=>s.status!=='rejected');
   const rows = o.tests.filter(t=>t.status!=='deselected').map(t=>{
     const tc = test(t.code);
@@ -817,6 +818,7 @@ function renderCollectionPanel(o, f){
     <div class="actions-row">
       ${activeSpecimens.length? `<button class="btn btn-teal" onclick="openReprintDialog()">Reprint Barcode</button>`:''}
       ${rejectedTests.length? `<button class="btn btn-danger" onclick="openRecollectDialog()">Recollect Rejected Test(s)</button>`:''}
+      ${newlyAddedTests.length? `<button class="btn" onclick="openCollectAddedDialog()">Collect Added Test(s)</button>`:''}
     </div>
   </div>`;
 }
@@ -916,6 +918,13 @@ function renderQtyRow(category, bottleType, specimenNumber, testsLine, inputId, 
 function renderPrintDialog(){
   const { groups, mode } = pendingCollect;
   const isRecollect = mode==='recollect';
+  const isCollectAdded = mode==='collect_added';
+  const title = isRecollect? 'Recollect & Print' : isCollectAdded? 'Collect Added Test(s)' : 'Print Barcode Labels';
+  const subtitle = isRecollect
+    ? 'This generates a fresh barcode for the rejected test(s) — the original specimen record stays on file as rejected.'
+    : isCollectAdded
+      ? 'This generates a barcode for the newly added test(s), which have not been drawn yet.'
+      : 'One barcode per Category + Specimen Type combination, based on each test\'s Test Catalog settings.';
   const rows = Object.keys(groups).sort().map(key=>{
     const { category, bottleType, tests } = groups[key];
     const testsLine = tests.map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ');
@@ -924,10 +933,10 @@ function renderPrintDialog(){
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
     <div class="modal" style="max-width:480px;">
-      <div class="modal-head"><h2>${isRecollect?'Recollect & Print':'Print Barcode Labels'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <p class="muted" style="font-size:12.5px;margin-top:-6px;">${isRecollect? 'This generates a fresh barcode for the rejected test(s) — the original specimen record stays on file as rejected.' : 'One barcode per Category + Specimen Type combination, based on each test\'s Test Catalog settings.'} Set how many copies of each to print.</p>
+      <div class="modal-head"><h2>${title}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">${subtitle} Set how many copies of each to print.</p>
       <div class="checklist" style="max-height:none;">${rows}</div>
-      <div class="actions-row"><button class="btn btn-teal" onclick="confirmCollectAndPrint()">${isRecollect?'Recollect & Print':'Collect & Print'}</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="confirmCollectAndPrint()">${title}</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
     </div>
   </div>`;
 }
@@ -939,11 +948,12 @@ async function confirmCollectAndPrint(){
     quantities[key] = el ? Math.max(0, parseInt(el.value,10)||0) : 1;
   });
   await withErrorToast(async ()=>{
-    const order = mode==='recollect' ? await api.recollect(orderId, selectedCodes) : await api.collect(orderId, selectedCodes);
+    const usesRecollectEndpoint = mode==='recollect' || mode==='collect_added';
+    const order = usesRecollectEndpoint ? await api.recollect(orderId, selectedCodes) : await api.collect(orderId, selectedCodes);
     collectionOpenOrderId = null; collectionOpenOrder = null;
     await render();
     printLabelsForOrder(order, groups, quantities);
-    showToast(mode==='recollect' ? 'Sample recollected — new specimen(s) barcoded.' : `Sample collected — ${order.specimens.length} specimen(s) barcoded.`);
+    showToast(usesRecollectEndpoint ? 'Specimen(s) drawn and barcoded.' : `Sample collected — ${order.specimens.length} specimen(s) barcoded.`);
   });
 }
 // Looks up each group's barcode via the exact specimen a test now belongs to (not by category +
@@ -1038,6 +1048,12 @@ function openRecollectDialog(){
   const rejected = collectionOpenOrder.tests.filter(t=>t.status==='rejected');
   if(!rejected.length){ showToast('Nothing rejected to recollect.'); return; }
   buildPendingCollect(rejected.map(t=>t.code), 'recollect');
+  renderPrintDialog();
+}
+function openCollectAddedDialog(){
+  const added = collectionOpenOrder.tests.filter(t=>t.status==='ordered');
+  if(!added.length){ showToast('Nothing newly added to collect.'); return; }
+  buildPendingCollect(added.map(t=>t.code), 'collect_added');
   renderPrintDialog();
 }
 async function referOrder(orderId){
@@ -1340,9 +1356,34 @@ async function enterManualResult(orderId, code){
 }
 async function certifyResult(orderId, code){
   await withErrorToast(async ()=>{
-    await api.certify(orderId, code);
+    const result = await api.certify(orderId, code);
     await render();
     showToast(`Result certified by ${session.user.name} — status now Completed.`);
+    if(result.reflexSuggestions && result.reflexSuggestions.length){
+      renderReflexSuggestionModal(orderId, result.reflexSuggestions);
+    }
+  });
+}
+function renderReflexSuggestionModal(orderId, suggestions){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-head"><h2>Reflex Suggestion${suggestions.length>1?'s':''}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Based on this result, consider adding:</p>
+      ${suggestions.map(s=>`<div class="test-row">
+        <div><b>${escapeHtml(s.resultTestName)}</b> <span class="mono muted">(${escapeHtml(s.resultTestCode)})</span>
+          <div class="muted" style="font-size:11px;">${escapeHtml(s.name)} — ${escapeHtml(s.reason)}</div></div>
+        <button class="btn btn-sm" onclick="addReflexTest('${orderId}','${s.resultTestCode}', this)">+ Add</button>
+      </div>`).join('')}
+      <div class="actions-row" style="margin-top:10px;"><button class="btn btn-outline" onclick="closeModal()">Dismiss</button></div>
+    </div>
+  </div>`;
+}
+async function addReflexTest(orderId, code, btnEl){
+  await withErrorToast(async ()=>{
+    await api.addReflexTest(orderId, code);
+    if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'Added ✓'; }
+    showToast(`${code} added to the order — collect it like any other test.`);
   });
 }
 function renderIncomingTab(orders, f){
@@ -1515,7 +1556,9 @@ async function viewSettings(){
     <div class="tabs">
       <div class="tab ${settingsTab==='catalog'?'active':''}" onclick="settingsTab='catalog';render();">Test Catalog</div>
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='categories'?'active':''}" onclick="settingsTab='categories';render();">Categories</div>`:''}
-      <div class="tab ${settingsTab==='patients'?'active':''}" onclick="settingsTab='patients';render();">Patients</div>
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='panels'?'active':''}" onclick="settingsTab='panels';render();">Panels</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='aliases'?'active':''}" onclick="settingsTab='aliases';render();">HIS Aliases</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='reflex'?'active':''}" onclick="settingsTab='reflex';render();">Reflex Rules</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
@@ -1525,7 +1568,9 @@ async function viewSettings(){
     </div>
     ${settingsTab==='catalog'? viewCatalog()
       : settingsTab==='categories'? viewCategories()
-      : settingsTab==='patients'? await viewPatients()
+      : settingsTab==='panels'? await viewPanels()
+      : settingsTab==='aliases'? await viewAliases()
+      : settingsTab==='reflex'? await viewReflexRules()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
       : settingsTab==='audit'? await viewAuditLog()
@@ -1876,6 +1921,181 @@ async function deleteCategory(id){
   });
 }
 
+/* ---------- Test Panels (manage_catalog) — organizational bundles, e.g. "Renal Panel" ---------- */
+async function viewPanels(){
+  const panels = await api.testPanels();
+  const rows = panels.map(p=>`<tr>
+    <td>${escapeHtml(p.name)}</td>
+    <td>${p.testCodes.map(c=>`<span class="mono muted">${escapeHtml(c)}</span>`).join(', ')}</td>
+    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openPanelModal('${p.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deletePanel('${p.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Test Panels</h1><p>Named bundles of tests (e.g. "Renal Panel") for organizing the Test Catalog and Sample Collection display. Orders still arrive from the HIS as individual test codes — a panel doesn't change how an order is built.</p></div>
+      <button class="btn" onclick="openPanelModal()">+ New Panel</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th>Tests</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="3" class="empty">No panels defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+async function openPanelModal(id){
+  const panels = id ? await api.testPanels() : [];
+  const existing = id ? panels.find(p=>p.id===id) : null;
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-head"><h2>${existing?'Edit Panel':'New Panel'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Panel Name</label><input id="panel_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Renal Panel"></div>
+      <div class="field"><label>Tests</label>
+        <div class="checklist">
+          ${catalogCache.map(t=>`<label class="check-item" style="cursor:pointer;">
+            <input type="checkbox" name="panelTest" value="${t.code}" ${existing?.testCodes.includes(t.code)?'checked':''}>
+            <span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span>
+          </label>`).join('')}
+        </div>
+      </div>
+      <div class="actions-row"><button class="btn" onclick="savePanel(${existing?`'${existing.id}'`:'null'})">Save Panel</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function savePanel(id){
+  const name = (document.getElementById('panel_name').value||'').trim();
+  const testCodes = Array.from(document.querySelectorAll('input[name="panelTest"]:checked')).map(el=>el.value);
+  if(!name || !testCodes.length){ showToast('Enter a name and select at least one test.'); return; }
+  await withErrorToast(async ()=>{
+    if(id) await api.updateTestPanel(id, {name, testCodes});
+    else await api.createTestPanel({name, testCodes});
+    closeModal(); await render();
+    showToast('Panel saved.');
+  });
+}
+async function deletePanel(id){
+  if(!confirm('Delete this panel?')) return;
+  await withErrorToast(async ()=>{ await api.deleteTestPanel(id); await render(); });
+}
+
+/* ---------- HIS Code Aliases (manage_catalog) ---------- */
+async function viewAliases(){
+  const aliases = await api.testAliases();
+  const rows = aliases.map(a=>`<tr>
+    <td class="mono">${escapeHtml(a.hisCode)}</td>
+    <td class="mono">${escapeHtml(a.internalCode)}</td>
+    <td>${escapeHtml(test(a.internalCode)?.name||'—')}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteAlias('${a.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>HIS Code Aliases</h1><p>If a memo arrives with a test code that doesn't match the catalog exactly, it's mapped here to the correct internal code — otherwise it becomes an unrecognized test with no category or specimen type.</p></div>
+      <button class="btn" onclick="openAliasModal()">+ New Alias</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>HIS Code</th><th>Internal Code</th><th>Maps To</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4" class="empty">No aliases defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openAliasModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>New Alias</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>HIS/Billing Code (as it arrives on the memo)</label><input id="alias_his" placeholder="e.g. GLUC-F"></div>
+      <div class="field"><label>Internal Catalog Code</label>
+        <select id="alias_internal">${catalogCache.map(t=>`<option value="${t.code}">${escapeHtml(t.name)} (${t.code})</option>`).join('')}</select>
+      </div>
+      <div class="actions-row"><button class="btn" onclick="saveAlias()">Save Alias</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveAlias(){
+  const hisCode = (document.getElementById('alias_his').value||'').trim();
+  const internalCode = document.getElementById('alias_internal').value;
+  if(!hisCode){ showToast('Enter the HIS code.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createTestAlias({hisCode, internalCode});
+    closeModal(); await render();
+    showToast('Alias saved.');
+  });
+}
+async function deleteAlias(id){
+  if(!confirm('Delete this alias?')) return;
+  await withErrorToast(async ()=>{ await api.deleteTestAlias(id); await render(); });
+}
+
+/* ---------- Reflex Rules (manage_catalog) — suggestion only, never auto-orders ---------- */
+const REFLEX_CONDITIONS = ['>','<','>=','<=','=='];
+async function viewReflexRules(){
+  const rules = await api.reflexRules();
+  const rows = rules.map(r=>`<tr>
+    <td>${escapeHtml(r.name)}</td>
+    <td class="mono">${escapeHtml(r.triggerTestCode)} ${escapeHtml(r.condition)} ${r.thresholdValue}</td>
+    <td class="mono">${escapeHtml(r.resultTestCode)}</td>
+    <td><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="checkbox" ${r.enabled?'checked':''} onchange="toggleReflexRule('${r.id}', this.checked)"> ${r.enabled?'Enabled':'Disabled'}
+    </label></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteReflexRule('${r.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Reflex Rules</h1><p>"If [test] is [condition] [value], suggest adding [test]." Never orders anything automatically — the certifying staff member sees the suggestion and adds it with one click if they agree.</p></div>
+      <button class="btn" onclick="openReflexRuleModal()">+ New Rule</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th>If</th><th>Suggest</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5" class="empty">No reflex rules defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openReflexRuleModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-head"><h2>New Reflex Rule</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Rule Name</label><input id="reflex_name" placeholder="e.g. High glucose → suggest HbA1c"></div>
+      <div class="field"><label>If this test's result...</label>
+        <select id="reflex_trigger">${catalogCache.map(t=>`<option value="${t.code}">${escapeHtml(t.name)} (${t.code})</option>`).join('')}</select>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Condition</label>
+          <select id="reflex_condition">${REFLEX_CONDITIONS.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Value</label><input id="reflex_threshold" type="number" step="any" placeholder="e.g. 200"></div>
+      </div>
+      <div class="field"><label>...suggest adding this test</label>
+        <select id="reflex_result">${catalogCache.map(t=>`<option value="${t.code}">${escapeHtml(t.name)} (${t.code})</option>`).join('')}</select>
+      </div>
+      <div class="actions-row"><button class="btn" onclick="saveReflexRule()">Save Rule</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveReflexRule(){
+  const name = (document.getElementById('reflex_name').value||'').trim();
+  const triggerTestCode = document.getElementById('reflex_trigger').value;
+  const condition = document.getElementById('reflex_condition').value;
+  const thresholdValue = document.getElementById('reflex_threshold').value;
+  const resultTestCode = document.getElementById('reflex_result').value;
+  if(!name || thresholdValue===''){ showToast('Fill in the rule name and threshold value.'); return; }
+  if(triggerTestCode===resultTestCode){ showToast('The trigger test and suggested test must be different.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createReflexRule({name, triggerTestCode, condition, thresholdValue: parseFloat(thresholdValue), resultTestCode});
+    closeModal(); await render();
+    showToast('Reflex rule saved.');
+  });
+}
+async function toggleReflexRule(id, enabled){
+  await withErrorToast(async ()=>{
+    await api.updateReflexRule(id, {enabled});
+    await render();
+    showToast(`Rule ${enabled?'enabled':'disabled'}.`);
+  });
+}
+async function deleteReflexRule(id){
+  if(!confirm('Delete this reflex rule?')) return;
+  await withErrorToast(async ()=>{ await api.deleteReflexRule(id); await render(); });
+}
+
 /* ---------- Connection (read-only, Regional admin only) ---------- */
 async function viewConnection(){
   let health = null, healthError = '';
@@ -2046,69 +2266,6 @@ async function deleteTest(code){
 }
 
 /* ---------- Patients ---------- */
-async function viewPatients(){
-  let patients = [];
-  try{ patients = await api.searchPatients(''); }catch(e){ /* ignore */ }
-  const rows = patients.map(p=>`
-    <tr>
-      <td class="mono">${escapeHtml(p.hospitalNumber||'—')}</td>
-      <td class="mono">${escapeHtml(p.idNumber||'—')}</td>
-      <td>${escapeHtml(p.name)}</td>
-      <td>${escapeHtml(p.dob)} <span class="muted">(${calcAge(p.dob)}y)</span></td>
-      <td>${p.sex}</td>
-      <td class="muted" style="font-size:12px;">${escapeHtml(p.address||'—')}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="reportsTab='history';goTo('reports');setTimeout(()=>{const el=document.getElementById('histSearch');if(el){histSearchQuery='${escapeHtml(p.hospitalNumber||p.id)}';el.value=histSearchQuery;searchHistory();}},50);">View history</button></td>
-    </tr>`).join('');
-  return `
-    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
-      <div><h1>Patients</h1><p>Registry shared across every facility in the network — used to identify patients when a memo is fetched.</p></div>
-      <button class="btn" onclick="openPatientModal()">+ Add Patient</button>
-    </div>
-    <div class="card" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Hospital No.</th><th>ID No.</th><th>Name</th><th>DOB</th><th>Sex</th><th>Address</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7" class="empty">No patients registered yet.</td></tr>`}</tbody></table>
-    </div>`;
-}
-let patientModalCallback = null;
-function openPatientModal(onSaved){
-  patientModalCallback = onSaved || null;
-  document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:520px;">
-      <div class="modal-head"><h2>Register Patient</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <div class="grid grid-2">
-        <div class="field"><label>Hospital Number</label><input id="p_hospno" placeholder="e.g. H-01234"></div>
-        <div class="field"><label>National ID Number</label><input id="p_idno" placeholder="e.g. A123456"></div>
-      </div>
-      <div class="field"><label>Full Name</label><input id="p_name" placeholder="e.g. Fathimath Shifa"></div>
-      <div class="grid grid-2">
-        <div class="field"><label>Date of Birth</label><input id="p_dob" type="date"></div>
-        <div class="field"><label>Sex</label><select id="p_sex"><option value="F">Female</option><option value="M">Male</option></select></div>
-      </div>
-      <div class="field"><label>Address</label><input id="p_addr" placeholder="e.g. Thundufushi, Ari Atoll"></div>
-      <div class="actions-row"><button class="btn" onclick="savePatient()">Save Patient</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
-    </div>
-  </div>`;
-}
-async function savePatient(){
-  const name = (document.getElementById('p_name').value||'').trim();
-  const dob = document.getElementById('p_dob').value;
-  if(!name || !dob){ showToast('Name and date of birth are required.'); return; }
-  const payload = {
-    name, dob, sex: document.getElementById('p_sex').value,
-    hospitalNumber: document.getElementById('p_hospno').value.trim(),
-    idNumber: document.getElementById('p_idno').value.trim(),
-    address: document.getElementById('p_addr').value.trim(),
-  };
-  await withErrorToast(async ()=>{
-    const p = await api.createPatient(payload);
-    const cb = patientModalCallback; patientModalCallback = null;
-    closeModal();
-    if(cb) cb(p); else await render();
-    showToast(`Patient ${p.name} registered (Hospital No. ${p.hospitalNumber||'—'}).`);
-  });
-}
-
 /* ---------- Admin — Manage Labs ---------- */
 async function viewAdmin(){
   if(!isRegional()){

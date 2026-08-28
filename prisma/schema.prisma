@@ -121,6 +121,40 @@ model TestDefinition {
   updatedAt DateTime @updatedAt
 }
 
+// Maps an external HIS/Billing code to the internal catalog code it actually means. Without this,
+// a memo test code that doesn't exactly match the catalog silently becomes an unrecognized
+// "orphan" test at Sample Collection — no category, no specimen type, no minimum tier.
+model TestAlias {
+  id           String   @id
+  hisCode      String   @unique
+  internalCode String
+  createdAt    DateTime @default(now())
+}
+
+// A named bundle of tests (e.g. "Renal Panel") — organizational only, for the Test Catalog and
+// Sample Collection display. Orders themselves still arrive from the HIS as individual test codes;
+// a panel doesn't change how an order is built, just how tests are grouped when shown.
+model TestPanel {
+  id        String   @id
+  name      String   @unique
+  testCodes String   // JSON-encoded array of test codes
+  createdAt DateTime @default(now())
+}
+
+// "If [triggerTestCode] is [condition] [thresholdValue], suggest adding [resultTestCode]." Never
+// auto-orders anything — it's a suggestion shown to the certifying staff member, who adds it with
+// one click if they agree. enabled lets an admin turn a rule off without deleting its definition.
+model ReflexRule {
+  id              String   @id
+  name            String
+  triggerTestCode String
+  condition       String   // '>' | '<' | '>=' | '<=' | '=='
+  thresholdValue  Float
+  resultTestCode  String
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+}
+
 model ReferenceRange {
   id       Int            @id @default(autoincrement())
   testCode String

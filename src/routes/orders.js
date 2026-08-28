@@ -95,8 +95,20 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
     });
   }
 
-  const testCodes = JSON.parse(memo.testCodes);
-  const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: testCodes } } });
+  const rawCodes = JSON.parse(memo.testCodes);
+  const [directMatches, aliases] = await Promise.all([
+    prisma.testDefinition.findMany({ where: { code: { in: rawCodes } } }),
+    prisma.testAlias.findMany({ where: { hisCode: { in: rawCodes } } }),
+  ]);
+  // A code resolves to itself if it's already a valid internal code; otherwise, check for a
+  // registered alias. If neither matches, it stays as-is — same "orphan code" fallback as before,
+  // just now a documented last resort rather than the only behavior.
+  const resolvedCodes = rawCodes.map(raw => {
+    if (directMatches.some(t => t.code === raw)) return raw;
+    const alias = aliases.find(a => a.hisCode === raw);
+    return alias ? alias.internalCode : raw;
+  });
+  const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: resolvedCodes } } });
 
   const order = await prisma.order.create({
     data: {
@@ -104,7 +116,7 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
       memoSource: memo.source, memoNumber: memo.memoNumber,
       patientId: patient.id, orderingFacilityId: req.user.facilityId, orderedBy: memo.orderedBy,
       tests: {
-        create: testCodes.map(code => {
+        create: resolvedCodes.map(code => {
           const tc = catalogTests.find(c => c.code === code);
           return { id: uid('OT'), code, name: tc ? tc.name : code, performingFacilityId: req.user.facilityId, status: 'ordered' };
         }),
@@ -205,9 +217,11 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
 
-// Redraw specimens for tests that were rejected at acceptance. The order's own collectedAt/
-// collectedBy (the very first draw for this memo) never changes — only the new specimen(s) get a
-// fresh collection timestamp and collector, same as a normal collect, tracked per-specimen.
+// Draws a fresh specimen for specific tests on an already-collected order — either tests that were
+// rejected at acceptance, or tests just added afterward (e.g. via a reflex rule) that were never
+// drawn in the first place. The order's own collectedAt/collectedBy (the very first draw for this
+// memo) never changes — only the new specimen(s) get a fresh collection timestamp and collector,
+// same as a normal collect, tracked per-specimen.
 router.post('/:id/recollect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
   const { testCodes } = req.body || {};
@@ -218,8 +232,8 @@ router.post('/:id/recollect', requireCapability('collect'), async (req, res) => 
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
 
-  const targetTests = order.tests.filter(t => testCodes.includes(t.code) && t.status === 'rejected');
-  if (!targetTests.length) return res.status(409).json({ error: 'None of the given tests are currently rejected.' });
+  const targetTests = order.tests.filter(t => testCodes.includes(t.code) && ['rejected', 'ordered'].includes(t.status));
+  if (!targetTests.length) return res.status(409).json({ error: 'None of the given tests are currently collectable (must be rejected or newly added).' });
 
   const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId } });
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: targetTests.map(t => t.code) } } });

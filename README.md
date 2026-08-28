@@ -189,9 +189,37 @@ None of these are done yet — see "What's deliberately not here yet" above, plu
 
 ## What's deliberately not here yet
 
-- No password reset / user management UI (users are seeded directly).
-- No rate limiting, no refresh tokens (12h JWT expiry only).
+- No refresh tokens (12h JWT expiry only) or rate limiting.
 - No file storage — labels/reports are structured JSON; rendering them as PDF/print output stays a
   frontend concern.
 - No automated tests. Given how much of the business logic sits in `src/utils/domain.js`, that's the
   first thing worth unit-testing if this goes further.
+
+## Future direction: local per-facility deployment (not started)
+
+Right now AtollLIS is one backend and one shared cloud database — every facility is always online
+and talking to the same server. That's the right call for where the project is today, but it means
+a Health Centre with poor or intermittent internet has no way to work when the connection drops.
+
+A real next step, if that becomes a priority, is an **offline-first / edge deployment** model: each
+facility (or at least each Health Centre) runs its own small local server holding its own patients
+and in-progress orders, syncing up to a central hub whenever connectivity allows. This is a
+legitimate, well-established pattern for exactly this kind of geography — it's how systems like
+DHIS2 and OpenMRS handle remote health facilities with unreliable connectivity.
+
+This is **not a small feature** — it's a different architecture, and would need real design work
+before implementation, specifically:
+
+- **Conflict resolution** — if the same patient is registered independently at two facilities
+  before they've synced, which record wins, and how is that reconciled?
+- **A sync protocol** — what syncs, how often, in which direction, and what happens if connectivity
+  drops mid-sync?
+- **Physical infrastructure** — an actual local server or small machine running at each facility,
+  and someone responsible for maintaining it.
+- **Referral routing** — the current referral system relies on the *same* order being visible to
+  both the sending and receiving facility in real time; that gets significantly harder once
+  facilities aren't sharing one live database.
+
+Nothing about the current codebase blocks this later — patient/data access already goes through
+backend routes rather than being scattered across raw queries — but it would be a genuine
+rearchitecture project, not an incremental Settings change.
