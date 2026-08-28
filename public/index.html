@@ -1683,6 +1683,10 @@ async function searchHistory(){
 
 /* ============================= SETTINGS ============================= */
 let settingsTab = 'catalog';
+let catalogSearch = '';
+let aliasSearch = '';
+let organismSearch = '';
+let antibioticSearch = '';
 let usersFacilityFilter = null;
 async function viewSettings(){
   const f = fac(session.user.facilityId);
@@ -2118,7 +2122,12 @@ async function deletePanel(id){
 /* ---------- HIS Code Aliases (manage_catalog) ---------- */
 async function viewAliases(){
   const aliases = await api.testAliases();
-  const rows = aliases.map(a=>`<tr>
+  const q = aliasSearch.trim().toLowerCase();
+  const filtered = q ? aliases.filter(a=>
+    (a.hisCode||'').toLowerCase().includes(q) || (a.internalCode||'').toLowerCase().includes(q) ||
+    (test(a.internalCode)?.name||'').toLowerCase().includes(q)
+  ) : aliases;
+  const rows = filtered.map(a=>`<tr>
     <td class="mono">${escapeHtml(a.hisCode)}</td>
     <td class="mono">${escapeHtml(a.internalCode)}</td>
     <td>${escapeHtml(test(a.internalCode)?.name||'—')}</td>
@@ -2129,9 +2138,14 @@ async function viewAliases(){
       <div><h1>HIS Code Aliases</h1><p>If a memo arrives with a test code that doesn't match the catalog exactly, it's mapped here to the correct internal code — otherwise it becomes an unrecognized test with no category or specimen type.</p></div>
       <button class="btn" onclick="openAliasModal()">+ New Alias</button>
     </div>
+    <div class="card">
+      <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by HIS code, internal code, or test name</label>
+        <input id="aliasSearchField" value="${escapeHtml(aliasSearch)}" placeholder="Type to filter…"
+          oninput="aliasSearch=this.value;render();const el=document.getElementById('aliasSearchField');if(el)el.focus();"></div>
+    </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>HIS Code</th><th>Internal Code</th><th>Maps To</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="4" class="empty">No aliases defined yet.</td></tr>`}</tbody></table>
+      <tbody>${rows || `<tr><td colspan="4" class="empty">${q?'No matching aliases.':'No aliases defined yet.'}</td></tr>`}</tbody></table>
     </div>
   `;
 }
@@ -2238,7 +2252,9 @@ async function deleteReflexRule(id){
 /* ---------- Organisms (manage_catalog) — microbiology master data ---------- */
 async function viewOrganisms(){
   organismsCache = await api.organisms();
-  const rows = organismsCache.map(o=>`<tr>
+  const q = organismSearch.trim().toLowerCase();
+  const filtered = q ? organismsCache.filter(o=>(o.name||'').toLowerCase().includes(q) || (o.group||'').toLowerCase().includes(q)) : organismsCache;
+  const rows = filtered.map(o=>`<tr>
     <td>${escapeHtml(o.name)}</td>
     <td class="muted">${escapeHtml(o.group||'—')}</td>
     <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openOrganismPanelModal('${o.id}')">Antibiotic Panel</button> <button class="btn btn-danger btn-sm" onclick="deleteOrganism('${o.id}')">Delete</button></td>
@@ -2248,9 +2264,14 @@ async function viewOrganisms(){
       <div><h1>Organisms</h1><p>Microbiology organism master list, used when entering a culture result. Each organism can have its own standard antibiotic sensitivity panel.</p></div>
       <button class="btn" onclick="openOrganismModal()">+ New Organism</button>
     </div>
+    <div class="card">
+      <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by name or group</label>
+        <input id="organismSearchField" value="${escapeHtml(organismSearch)}" placeholder="Type to filter…"
+          oninput="organismSearch=this.value;render();const el=document.getElementById('organismSearchField');if(el)el.focus();"></div>
+    </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Name</th><th>Group</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="3" class="empty">No organisms defined yet.</td></tr>`}</tbody></table>
+      <tbody>${rows || `<tr><td colspan="3" class="empty">${q?'No matching organisms.':'No organisms defined yet.'}</td></tr>`}</tbody></table>
     </div>
   `;
 }
@@ -2311,7 +2332,9 @@ async function saveOrganismPanel(organismId){
 /* ---------- Antibiotics (manage_catalog) ---------- */
 async function viewAntibiotics(){
   antibioticsCache = await api.antibiotics();
-  const rows = antibioticsCache.map(a=>`<tr>
+  const q = antibioticSearch.trim().toLowerCase();
+  const filtered = q ? antibioticsCache.filter(a=>(a.name||'').toLowerCase().includes(q)) : antibioticsCache;
+  const rows = filtered.map(a=>`<tr>
     <td>${escapeHtml(a.name)}</td>
     <td><button class="btn btn-danger btn-sm" onclick="deleteAntibiotic('${a.id}')">Delete</button></td>
   </tr>`).join('');
@@ -2320,9 +2343,14 @@ async function viewAntibiotics(){
       <div><h1>Antibiotics</h1><p>Antibiotic master list, used to build each organism's sensitivity panel.</p></div>
       <button class="btn" onclick="openAntibioticModal()">+ New Antibiotic</button>
     </div>
+    <div class="card">
+      <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by name</label>
+        <input id="antibioticSearchField" value="${escapeHtml(antibioticSearch)}" placeholder="Type to filter…"
+          oninput="antibioticSearch=this.value;render();const el=document.getElementById('antibioticSearchField');if(el)el.focus();"></div>
+    </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Name</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="2" class="empty">No antibiotics defined yet.</td></tr>`}</tbody></table>
+      <tbody>${rows || `<tr><td colspan="2" class="empty">${q?'No matching antibiotics.':'No antibiotics defined yet.'}</td></tr>`}</tbody></table>
     </div>
   `;
 }
@@ -2385,7 +2413,12 @@ async function viewConnection(){
 /* ---------- Test Catalog ---------- */
 function viewCatalog(){
   const editable = isRegional();
-  const rows = catalogCache.map(t=>`
+  const q = catalogSearch.trim().toLowerCase();
+  const filtered = q ? catalogCache.filter(t=>
+    (t.code||'').toLowerCase().includes(q) || (t.name||'').toLowerCase().includes(q) ||
+    (t.category||'').toLowerCase().includes(q) || (t.specimenType||'').toLowerCase().includes(q)
+  ) : catalogCache;
+  const rows = filtered.map(t=>`
     <tr>
       <td class="mono">${escapeHtml(t.code)}</td>
       <td>${escapeHtml(t.name)}<div class="muted" style="font-size:11.5px;">${escapeHtml(t.specimenType||'')}</div></td>
@@ -2402,10 +2435,15 @@ function viewCatalog(){
       <div><h1>Test Catalog</h1><p>${editable? 'Define test codes, parameters, methods, reference ranges and reporting comments — standardised across every lab in the network.' : `Centrally managed by the Regional Hospital. Atoll Hospitals and Health Centres use this catalog to place orders but cannot edit it.`}</p></div>
       ${editable? `<button class="btn" onclick="openTestModal()">+ New Test</button>` : ''}
     </div>
+    <div class="card">
+      <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by code, name, category, or specimen type</label>
+        <input id="catalogSearchField" value="${escapeHtml(catalogSearch)}" placeholder="Type to filter…"
+          oninput="catalogSearch=this.value;render();const el=document.getElementById('catalogSearchField');if(el)el.focus();"></div>
+    </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table>
         <thead><tr><th>Code</th><th>Test / Specimen</th><th>Category</th><th>Method</th><th>Units</th><th>Min. Facility Level</th><th>Ref. Ranges</th><th>TAT</th><th></th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="9" class="empty">No tests defined yet.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="9" class="empty">${q?'No matching tests.':'No tests defined yet.'}</td></tr>`}</tbody>
       </table>
     </div>
   `;
