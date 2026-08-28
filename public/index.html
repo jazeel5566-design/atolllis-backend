@@ -2083,29 +2083,45 @@ async function viewPanels(){
     </div>
   `;
 }
+let panelModalSearch = '';
+let panelModalSelected = new Set();
+let panelModalEditing = null;
 async function openPanelModal(id){
   const panels = id ? await api.testPanels() : [];
-  const existing = id ? panels.find(p=>p.id===id) : null;
+  panelModalEditing = id ? panels.find(p=>p.id===id) : null;
+  panelModalSearch = '';
+  panelModalSelected = new Set(panelModalEditing ? panelModalEditing.testCodes : []);
+  renderPanelModalBody();
+}
+function renderPanelModalBody(){
+  const existing = panelModalEditing;
+  const q = panelModalSearch.trim().toLowerCase();
+  const filtered = q ? catalogCache.filter(t=>(t.name||'').toLowerCase().includes(q) || (t.code||'').toLowerCase().includes(q)) : catalogCache;
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>${existing?'Edit Panel':'New Panel'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Panel Name</label><input id="panel_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Renal Panel"></div>
-      <div class="field"><label>Tests</label>
+      <div class="field"><label>Tests <span class="muted" style="font-weight:400;">(${panelModalSelected.size} selected)</span></label>
+        <input id="panel_test_search" value="${escapeHtml(panelModalSearch)}" placeholder="Search by name or code…" style="margin-bottom:8px;"
+          oninput="panelModalSearch=this.value;renderPanelModalBody();const el=document.getElementById('panel_test_search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}">
         <div class="checklist">
-          ${catalogCache.map(t=>`<label class="check-item" style="cursor:pointer;">
-            <input type="checkbox" name="panelTest" value="${t.code}" ${existing?.testCodes.includes(t.code)?'checked':''}>
+          ${filtered.map(t=>`<label class="check-item" style="cursor:pointer;">
+            <input type="checkbox" ${panelModalSelected.has(t.code)?'checked':''} onchange="togglePanelTest('${t.code}',this.checked)">
             <span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span>
-          </label>`).join('')}
+          </label>`).join('') || '<p class="muted" style="padding:8px;">No matching tests.</p>'}
         </div>
       </div>
       <div class="actions-row"><button class="btn" onclick="savePanel(${existing?`'${existing.id}'`:'null'})">Save Panel</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
     </div>
   </div>`;
 }
+function togglePanelTest(code, checked){
+  if(checked) panelModalSelected.add(code); else panelModalSelected.delete(code);
+}
 async function savePanel(id){
   const name = (document.getElementById('panel_name').value||'').trim();
-  const testCodes = Array.from(document.querySelectorAll('input[name="panelTest"]:checked')).map(el=>el.value);
+  const testCodes = Array.from(panelModalSelected);
   if(!name || !testCodes.length){ showToast('Enter a name and select at least one test.'); return; }
   await withErrorToast(async ()=>{
     if(id) await api.updateTestPanel(id, {name, testCodes});
