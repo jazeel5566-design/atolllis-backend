@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 router.use(requireAuth);
 
@@ -25,6 +26,7 @@ router.post('/:orderId/:code/analyser-result', requireCapability('process'), asy
     where: { id: t.id },
     data: { value: String(value), unit, status: 'interfaced', enteredAt: new Date(), enteredBy: 'Analyser Interface' },
   });
+  await logAudit(req.user, { action: 'analyser_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} ${unit} (from analyser)` });
   res.json(updated);
 });
 
@@ -43,6 +45,7 @@ router.post('/:orderId/:code/manual-result', requireCapability('process'), async
     where: { id: t.id },
     data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: 'Manual Entry' },
   });
+  await logAudit(req.user, { action: 'manual_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} (manual entry)` });
   res.json(updated);
 });
 
@@ -59,6 +62,7 @@ router.post('/:orderId/:code/certify', requireCapability('certify'), async (req,
     where: { id: t.id },
     data: { status: 'completed', validatedBy, validatedAt: new Date() },
   });
+  await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified` });
   res.json(updated);
 });
 

@@ -33,6 +33,7 @@ const CAPABILITY_LABELS = {
   manage_users: 'Manage Staff Accounts',
   manage_catalog: 'Manage Test Catalog & Categories',
   manage_labs: 'Manage Lab Network & Facility Networks',
+  view_audit: 'View Audit Log',
 };
 
 const ALL_ROLES = Object.keys(ROLE_LABELS);

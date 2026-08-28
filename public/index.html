@@ -289,7 +289,7 @@ async function apiRequest(path, opts){
 const api = {
   publicFacilities: () => apiRequest('/auth/facilities', {auth:false}),
   detectFacility: () => apiRequest('/auth/detect-facility', {auth:false}),
-  login: (facilityId, username, password, actingFacilityId) => apiRequest('/auth/login', {method:'POST', body:{facilityId, username, password, actingFacilityId}, auth:false}),
+  login: (username, password, actingFacilityId) => apiRequest('/auth/login', {method:'POST', body:{username, password, actingFacilityId}, auth:false}),
   facilities: () => apiRequest('/facilities'),
   createFacility: (data) => apiRequest('/facilities', {method:'POST', body:data}),
   deleteFacility: (id) => apiRequest(`/facilities/${id}`, {method:'DELETE'}),
@@ -311,11 +311,9 @@ const api = {
   deleteFacilityNetwork: (id) => apiRequest(`/facility-networks/${id}`, {method:'DELETE'}),
   roleCapabilities: () => apiRequest('/role-capabilities'),
   updateRoleCapabilities: (role,capabilities) => apiRequest(`/role-capabilities/${role}`, {method:'PUT', body:{capabilities}}),
-  users: (facilityId) => apiRequest(`/users${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
-  createUser: (data) => apiRequest('/users', {method:'POST', body:data}),
-  updateUser: (id,data) => apiRequest(`/users/${id}`, {method:'PUT', body:data}),
-  deleteUser: (id) => apiRequest(`/users/${id}`, {method:'DELETE'}),
-  changePassword: (currentPassword,newPassword) => apiRequest('/auth/change-password', {method:'POST', body:{currentPassword,newPassword}}),
+  grantFacilityAccess: (userId,facilityId) => apiRequest(`/users/${userId}/facility-access`, {method:'POST', body:{facilityId}}),
+  revokeFacilityAccess: (userId,facilityId) => apiRequest(`/users/${userId}/facility-access/${facilityId}`, {method:'DELETE'}),
+  auditLog: (params) => apiRequest(`/audit${params?('?'+params):''}`),
   searchPatients: (query) => apiRequest(`/patients${query?('?query='+encodeURIComponent(query)):''}`),
   createPatient: (data) => apiRequest('/patients', {method:'POST', body:data}),
   importMemo: (memoNumber) => apiRequest('/orders/import', {method:'POST', body:{memoNumber}}),
@@ -407,8 +405,7 @@ async function renderApp(){
     await render();
   }
 }
-let detectedFacilityId = null;
-let pendingAdminLogin = null; // {username, password, defaultFacilityId, facilities} while an Admin picks a facility
+let pendingFacilityLogin = null; // {username, password, defaultFacilityId, facilities} while choosing between >1 authorized facility
 
 async function renderLoginScreen(){
   const el = document.getElementById('loginScreen');
@@ -417,20 +414,11 @@ async function renderLoginScreen(){
     <div class="sub" style="color:var(--mute);">Laboratory Information System</div></div>
     <p class="muted" style="font-size:12.5px;">Contacting backend…</p></div>`;
 
-  let facilities = [];
-  let loadError = '';
-  let detectedFacilityName = '';
-  try{
-    const detected = await api.detectFacility();
-    detectedFacilityId = detected.facilityId;
-    detectedFacilityName = detected.facilityName || '';
-    if(!detectedFacilityId) facilities = await api.publicFacilities(); // no network match — fall back to manual picker
-  }catch(e){
-    loadError = e.message;
-    try{ facilities = await api.publicFacilities(); }catch(e2){}
-  }
+  let backendOk = true, loadError = '';
+  try{ await apiRequest('/health', {auth:false}); }
+  catch(e){ backendOk = false; loadError = e.message; }
 
-  if(pendingAdminLogin){ renderAdminFacilityStep(); return; }
+  if(pendingFacilityLogin){ renderFacilitySelectionStep(); return; }
 
   el.innerHTML = `
     <div class="login-card">
@@ -438,21 +426,18 @@ async function renderLoginScreen(){
         <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
         <div class="sub" style="color:var(--mute);">Laboratory Information System</div>
       </div>
-      ${loadError? `<p style="color:var(--crimson);font-size:12px;">${escapeHtml(loadError)}</p><button class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="renderLoginScreen()">Retry Connection</button>` : ''}
-      ${detectedFacilityId
-        ? `<p class="muted" style="font-size:12px;margin-top:-6px;margin-bottom:14px;">Recognized network: <b>${escapeHtml(detectedFacilityName)}</b></p>`
-        : `<div class="field"><label>Lab / Facility</label>
-            <select id="login_fac">${facilities.map(f=>`<option value="${f.id}">${escapeHtml(f.name)} — ${TIER_SHORT[f.tier]||f.tier}</option>`).join('') || '<option value="">— none loaded —</option>'}</select>
-          </div>`}
+      ${!backendOk? `<p style="color:var(--crimson);font-size:12px;">${escapeHtml(loadError)}</p><button class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="renderLoginScreen()">Retry Connection</button>` : ''}
       <div class="grid grid-2">
-        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. hc1" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
+        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. anazima" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
         <div class="field"><label>Password</label><input id="login_pass" type="password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
       </div>
       <button class="btn" style="width:100%;" onclick="doLogin()">Log In</button>
     </div>`;
 }
-function renderAdminFacilityStep(){
-  const { defaultFacilityId, facilities } = pendingAdminLogin;
+// Shown only when the account is authorized at more than one facility — and only after the
+// password has already verified correctly, never before.
+function renderFacilitySelectionStep(){
+  const { defaultFacilityId, facilities } = pendingFacilityLogin;
   const el = document.getElementById('loginScreen');
   el.innerHTML = `
     <div class="login-card">
@@ -460,42 +445,39 @@ function renderAdminFacilityStep(){
         <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
         <div class="sub" style="color:var(--mute);">Laboratory Information System</div>
       </div>
-      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Password verified — choose which facility to operate as.</p>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Password verified. This account is authorized at more than one facility — choose which one.</p>
       <div class="field"><label>Facility</label>
-        <select id="login_admin_fac">${facilities.map(f=>`<option value="${f.id}" ${f.id===defaultFacilityId?'selected':''}>${escapeHtml(f.name)} — ${TIER_SHORT[f.tier]||f.tier}</option>`).join('')}</select>
+        <select id="login_pick_fac">${facilities.map(f=>`<option value="${f.id}" ${f.id===defaultFacilityId?'selected':''}>${escapeHtml(f.name)} — ${TIER_SHORT[f.tier]||f.tier}</option>`).join('')}</select>
       </div>
-      <button class="btn" style="width:100%;" onclick="doAdminFacilityLogin()">Continue</button>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="pendingAdminLogin=null;renderLoginScreen();">Cancel</button>
+      <button class="btn" style="width:100%;" onclick="doFacilityPickLogin()">Continue</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="pendingFacilityLogin=null;renderLoginScreen();">Cancel</button>
     </div>`;
 }
-async function doAdminFacilityLogin(){
-  const actingFacilityId = document.getElementById('login_admin_fac').value;
-  const { username, password } = pendingAdminLogin;
+async function doFacilityPickLogin(){
+  const actingFacilityId = document.getElementById('login_pick_fac').value;
+  const { username, password } = pendingFacilityLogin;
   try{
-    const data = await api.login(detectedFacilityId, username, password, actingFacilityId);
-    pendingAdminLogin = null;
+    const data = await api.login(username, password, actingFacilityId);
+    pendingFacilityLogin = null;
     session.token = data.token; session.user = data.user;
     await bootstrapCaches();
     state.activeView = 'dashboard';
     await renderApp();
   }catch(e){
     showToast(e.message);
-    pendingAdminLogin = null;
+    pendingFacilityLogin = null;
     await renderLoginScreen();
   }
 }
 async function doLogin(){
-  const facEl = document.getElementById('login_fac');
-  const facilityId = detectedFacilityId || (facEl ? facEl.value : null);
   const username = (document.getElementById('login_user').value||'').trim();
   const password = document.getElementById('login_pass').value;
-  if(!facilityId && !username){ showToast('Enter your username.'); return; }
   if(!username || !password){ showToast('Enter username and password.'); return; }
   try{
-    const data = await api.login(facilityId, username, password);
+    const data = await api.login(username, password);
     if(data.requiresFacilitySelection){
-      pendingAdminLogin = { username, password, defaultFacilityId: data.defaultFacilityId, facilities: data.facilities };
-      renderAdminFacilityStep();
+      pendingFacilityLogin = { username, password, defaultFacilityId: data.defaultFacilityId, facilities: data.facilities };
+      renderFacilitySelectionStep();
       return;
     }
     session.token = data.token; session.user = data.user;
@@ -515,15 +497,6 @@ async function bootstrapCaches(){
 // Demo convenience only: seeded accounts all use username=facilityId, password=password123, so
 // Regional admin can "view as" another lab without re-typing credentials. A real deployment would
 // not have this shortcut — each facility's staff would hold their own credentials.
-async function quickSwitchFacility(facilityId){
-  try{
-    const data = await api.login(facilityId, facilityId, 'password123');
-    session.token = data.token; session.user = data.user;
-    state.activeView = 'dashboard';
-    closeSidebar();
-    await renderApp();
-  }catch(e){ showToast('Quick switch failed: ' + e.message); }
-}
 function doLogout(){
   session = { token:null, user:null };
   facilitiesCache = []; catalogCache = []; categoriesCache = []; roleCapabilitiesCache = {roles:[], allCapabilities:[]};
@@ -1546,6 +1519,7 @@ async function viewSettings(){
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
+      ${hasCapability('view_audit')? `<div class="tab ${settingsTab==='audit'?'active':''}" onclick="settingsTab='audit';render();">Audit Log</div>`:''}
       <div class="tab ${settingsTab==='account'?'active':''}" onclick="settingsTab='account';render();">My Account</div>
       ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
     </div>
@@ -1554,6 +1528,7 @@ async function viewSettings(){
       : settingsTab==='patients'? await viewPatients()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
+      : settingsTab==='audit'? await viewAuditLog()
       : settingsTab==='account'? viewMyAccount()
       : settingsTab==='connection'? await viewConnection()
       : await viewAdmin()}
@@ -1616,6 +1591,55 @@ async function deleteFacilityNetwork(id){
 }
 
 /* ---------- My Account (everyone) ---------- */
+/* ---------- Audit Log (view_audit capability) ---------- */
+let auditFacilityFilter = null;
+let auditActionFilter = '';
+async function viewAuditLog(){
+  const isAdmin = session.user.role==='admin';
+  let facilities = [];
+  if(isAdmin) facilities = await api.facilities();
+  const params = new URLSearchParams();
+  if(isAdmin && auditFacilityFilter) params.set('facilityId', auditFacilityFilter);
+  if(auditActionFilter) params.set('action', auditActionFilter);
+  const entries = await api.auditLog(params.toString());
+  const actionLabel = {
+    login:'Login', memo_imported:'Memo Fetched', memo_cancelled:'Memo Cancelled', collect:'Sample Collected',
+    recollect:'Sample Recollected', refer:'Referred', receive_referral:'Referral Received',
+    load_analyser:'Loaded to Analyser', accept:'Specimen Accepted', reject:'Specimen Rejected',
+    analyser_result:'Analyser Result', manual_result:'Manual Result', certify:'Certified',
+    user_created:'User Created', user_updated:'User Updated', user_removed:'User Removed',
+    facility_access_granted:'Facility Access Granted', facility_access_revoked:'Facility Access Revoked',
+  };
+  const rows = entries.map(e=>`<tr>
+    <td class="muted" style="font-size:12px;white-space:nowrap;">${fmtDate(e.createdAt)}</td>
+    <td>${escapeHtml(e.userName)}</td>
+    <td>${escapeHtml(e.facilityName)}</td>
+    <td><span class="pill pill-grey">${escapeHtml(actionLabel[e.action]||e.action)}</span></td>
+    <td style="font-size:12.5px;">${escapeHtml(e.details||'')}</td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead"><h1>Audit Log</h1><p>Every logged action, at both the user and facility level.</p></div>
+    <div class="card">
+      <div class="grid grid-2">
+        ${isAdmin? `<div class="field" style="margin-bottom:0;"><label>Facility</label>
+          <select onchange="auditFacilityFilter=this.value||null;render();">
+            <option value="">All facilities</option>
+            ${facilities.map(f=>`<option value="${f.id}" ${auditFacilityFilter===f.id?'selected':''}>${escapeHtml(f.name)}</option>`).join('')}
+          </select></div>` : ''}
+        <div class="field" style="margin-bottom:0;"><label>Action</label>
+          <select onchange="auditActionFilter=this.value;render();">
+            <option value="">All actions</option>
+            ${Object.entries(actionLabel).map(([k,label])=>`<option value="${k}" ${auditActionFilter===k?'selected':''}>${escapeHtml(label)}</option>`).join('')}
+          </select></div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>When</th><th>User</th><th>Facility</th><th>Action</th><th>Details</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5" class="empty">No matching entries.</td></tr>`}</tbody></table>
+    </div>
+    <p class="muted" style="font-size:11px;">Showing the most recent ${entries.length} entries.</p>
+  `;
+}
 function viewMyAccount(){
   return `<div class="card" style="max-width:420px;">
     <h2>My Account</h2>
@@ -1658,6 +1682,7 @@ async function viewUsers(){
     <td>${escapeHtml(u.name)}${u.id===session.user.userId?' <span class="muted">(you)</span>':''}</td>
     <td class="mono">${escapeHtml(u.username)}</td>
     <td>${escapeHtml(u.roleLabel)}</td>
+    <td>${u.facilityAccess.map(a=>escapeHtml(a.facilityName)).join(', ')}${u.facilityAccess.length>1?` <span class="pill pill-teal" style="font-size:10px;">picks at login</span>`:''}</td>
     <td style="white-space:nowrap;">
       <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}','${targetFacilityId}')">Edit</button>
       ${u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Remove</button>`:''}
@@ -1669,8 +1694,8 @@ async function viewUsers(){
       <button class="btn" onclick="openUserModal(null,'${targetFacilityId}')">+ New User</button>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="4" class="empty">No users found.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Facility Access</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5" class="empty">No users found.</td></tr>`}</tbody></table>
     </div>
     ${isAdmin? await renderRolePermissions() : ''}
   `;
@@ -1717,9 +1742,27 @@ async function openUserModal(userId, facilityId){
   const grantable = isAdmin
     ? ['phlebotomist','technologist','pathologist','lab_manager','admin']
     : ['phlebotomist','technologist','pathologist','lab_manager'];
+  const allFacilities = isAdmin ? await api.facilities() : facilitiesCache;
+  const accessSection = existing ? `
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+    <h2 style="font-size:14px;">Facility Access</h2>
+    <p class="muted" style="font-size:11.5px;margin-top:-6px;">Beyond one facility, this account is asked which one to use right after the password verifies at login.</p>
+    <div class="checklist" style="max-height:none;">
+      ${existing.facilityAccess.map(a=>`<div class="test-row">
+        <span>${escapeHtml(a.facilityName)}${a.facilityId===existing.facilityId?' <span class="muted">(home)</span>':''}</span>
+        ${a.facilityId!==existing.facilityId? `<button class="btn btn-danger btn-sm" onclick="revokeFacilityAccess('${existing.id}','${a.facilityId}','${facilityId}')">Revoke</button>`:''}
+      </div>`).join('')}
+    </div>
+    <div class="grid grid-2" style="margin-top:8px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Grant access to</label>
+        <select id="u_grant_facility">${allFacilities.filter(f=>!existing.facilityAccess.some(a=>a.facilityId===f.id)).map(f=>`<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('') || '<option value="">— already has access everywhere available —</option>'}</select>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="grantFacilityAccess('${existing.id}','${facilityId}')">+ Grant</button>
+    </div>
+  ` : `<p class="muted" style="font-size:11.5px;margin-top:14px;">You can grant access to additional facilities after creating this user.</p>`;
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:420px;">
+    <div class="modal" style="max-width:440px;">
       <div class="modal-head"><h2>${existing?'Edit User':'New User'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Name</label><input id="u_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Aminath Nazima"></div>
       <div class="field"><label>Username</label><input id="u_username" value="${escapeHtml(existing?.username||'')}" placeholder="e.g. anazima" ${existing?'readonly style="background:#F7F9FB;color:var(--mute);"':''}></div>
@@ -1728,8 +1771,26 @@ async function openUserModal(userId, facilityId){
       </div>
       <div class="field"><label>${existing?'Reset Password (leave blank to keep current)':'Password'}</label><input id="u_password" type="password" placeholder="min. 6 characters"></div>
       <div class="actions-row"><button class="btn" onclick="saveUser(${existing?`'${existing.id}'`:'null'},'${facilityId}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+      ${accessSection}
     </div>
   </div>`;
+}
+async function grantFacilityAccess(userId, currentFacilityFilter){
+  const facilityId = document.getElementById('u_grant_facility').value;
+  if(!facilityId){ showToast('Choose a facility to grant.'); return; }
+  await withErrorToast(async ()=>{
+    await api.grantFacilityAccess(userId, facilityId);
+    await openUserModal(userId, currentFacilityFilter);
+    showToast('Facility access granted.');
+  });
+}
+async function revokeFacilityAccess(userId, facilityId, currentFacilityFilter){
+  if(!confirm('Revoke access to this facility for this user?')) return;
+  await withErrorToast(async ()=>{
+    await api.revokeFacilityAccess(userId, facilityId);
+    await openUserModal(userId, currentFacilityFilter);
+    showToast('Facility access revoked.');
+  });
 }
 async function saveUser(userId, facilityId){
   const name = (document.getElementById('u_name').value||'').trim();
@@ -2057,14 +2118,14 @@ async function viewAdmin(){
   const atollRows = facilitiesCache.filter(f=>f.tier==='atoll').map(f=>`<tr>
       <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
       <td><span class="tier-badge ${TIER_CLASS[f.tier]}">${TIER_SHORT[f.tier]}</span></td>
-      <td><button class="btn btn-outline btn-sm" onclick="quickSwitchFacility('${f.id}')">View as this lab</button> <button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
     </tr>`).join('');
   const hcRows = facilitiesCache.filter(f=>f.tier==='health_centre').map(f=>{
     const parent = facilitiesCache.find(x=>x.id===f.parentAtollId);
     return `<tr>
       <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
       <td>${parent? escapeHtml(parent.name) : `${escapeHtml(reg.name)} <span class="muted">(direct — no Atoll Hospital)</span>`}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="quickSwitchFacility('${f.id}')">View as this lab</button> <button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
     </tr>`;
   }).join('');
   return `
@@ -2082,7 +2143,7 @@ async function viewAdmin(){
       <table><thead><tr><th>Lab ID</th><th>Name</th><th>Parent Atoll Hospital</th><th></th></tr></thead>
       <tbody>${hcRows || `<tr><td colspan="4" class="empty">No Health Centre labs created yet.</td></tr>`}</tbody></table>
     </div>
-    <p class="muted" style="font-size:11.5px;">"View as this lab" uses the seeded demo credentials (username = facility ID, password = password123) as a convenience — a real deployment would require each facility's own staff to log in with their own credentials.</p>
+    <p class="muted" style="font-size:11.5px;">To view a facility's data, grant your own account access to it under Settings → Users → Edit → Facility Access.</p>
   `;
 }
 function openLabModal(){

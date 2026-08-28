@@ -3,6 +3,7 @@ const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
 const { uid } = require('../utils/id');
 const { needsReferral, referralTarget, generateSpecimenNumber } = require('../utils/domain');
+const { logAudit } = require('../utils/audit');
 
 router.use(requireAuth);
 
@@ -111,6 +112,7 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
     },
     include: { tests: true, patient: true, specimens: true },
   });
+  await logAudit(req.user, { action: 'memo_imported', entityType: 'Order', entityId: order.id, details: `Fetched memo ${memo.memoNumber} for ${memo.patientName}` });
   res.status(201).json(mapOrderForViewer(order, req.user.facilityId));
 });
 
@@ -122,6 +124,7 @@ router.delete('/:id', requireCapability('collect'), async (req, res) => {
   if (order.sampleStatus) return res.status(409).json({ error: 'Cannot cancel — already collected' });
   await prisma.orderTest.deleteMany({ where: { orderId: order.id } });
   await prisma.order.delete({ where: { id: order.id } });
+  await logAudit(req.user, { action: 'memo_cancelled', entityType: 'Order', entityId: order.id, details: `Cancelled memo ${order.memoNumber}` });
   res.json({ ok: true });
 });
 
@@ -198,6 +201,7 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   ));
 
   const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  await logAudit(req.user, { action: 'collect', entityType: 'Order', entityId: id, details: `Collected memo ${order.memoNumber} — ${full.specimens.length} specimen(s)` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
 
@@ -262,6 +266,7 @@ router.post('/:id/recollect', requireCapability('collect'), async (req, res) => 
   }
 
   const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  await logAudit(req.user, { action: 'recollect', entityType: 'Order', entityId: id, details: `Recollected rejected test(s) for memo ${order.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
 
@@ -296,6 +301,7 @@ router.post('/:id/refer', requireCapability('collect'), async (req, res) => {
   await prisma.order.update({ where: { id }, data: { referredAt: new Date(), referredByName } });
 
   const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  await logAudit(req.user, { action: 'refer', entityType: 'Order', entityId: id, details: `Referred memo ${order.memoNumber} to ${Array.from(targetNames).join(' & ')}` });
   res.json({ order: mapOrderForViewer(full, req.user.facilityId), referredTo: Array.from(targetNames) });
 });
 
@@ -310,6 +316,7 @@ router.post('/:id/receive-referral', requireCapability('process'), async (req, r
   });
   const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
   if (!full) return res.status(404).json({ error: 'Not found' });
+  await logAudit(req.user, { action: 'receive_referral', entityType: 'Order', entityId: id, details: `Received referred sample for memo ${full.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
 

@@ -18,7 +18,12 @@ async function main() {
     // Regional's own login is the system administrator; every other facility's default login is
     // a Lab Manager, so existing demo credentials keep full local capability after this change.
     const role = f.id === regional.id ? 'admin' : 'lab_manager';
-    await prisma.user.create({ data: { name: `${f.name} ${role === 'admin' ? 'Administrator' : 'Lab Manager'}`, username: f.id, passwordHash, role, facilityId: f.id } });
+    await prisma.user.create({
+      data: {
+        name: `${f.name} ${role === 'admin' ? 'Administrator' : 'Lab Manager'}`, username: f.id, passwordHash, role, facilityId: f.id,
+        facilityAccess: { create: [{ id: `UFA-${f.id}`, facilityId: f.id }] },
+      },
+    });
   }
   // Extra accounts at Thundufushi HC to demonstrate role differences without extra facilities.
   const demoRoles = [
@@ -27,7 +32,12 @@ async function main() {
     { username: 'hc1_path', name: 'Thundufushi Pathologist Demo', role: 'pathologist' },
   ];
   for (const d of demoRoles) {
-    await prisma.user.create({ data: { name: d.name, username: d.username, passwordHash, role: d.role, facilityId: hc1.id } });
+    await prisma.user.create({
+      data: {
+        name: d.name, username: d.username, passwordHash, role: d.role, facilityId: hc1.id,
+        facilityAccess: { create: [{ id: `UFA-${d.username}`, facilityId: hc1.id }] },
+      },
+    });
   }
 
   // ---------- Default role → capability assignment (editable later under Settings → Users) ----------
@@ -35,8 +45,8 @@ async function main() {
     phlebotomist: ['collect'],
     technologist: ['collect', 'accept', 'process'],
     pathologist: ['collect', 'accept', 'process', 'certify'],
-    lab_manager: ['collect', 'accept', 'process', 'certify', 'manage_users'],
-    admin: ['collect', 'accept', 'process', 'certify', 'manage_users', 'manage_catalog', 'manage_labs'],
+    lab_manager: ['collect', 'accept', 'process', 'certify', 'manage_users', 'view_audit'],
+    admin: ['collect', 'accept', 'process', 'certify', 'manage_users', 'manage_catalog', 'manage_labs', 'view_audit'],
   };
   for (const [role, capabilities] of Object.entries(defaultRoleCapabilities)) {
     for (const capability of capabilities) {

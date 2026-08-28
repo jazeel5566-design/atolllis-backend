@@ -29,6 +29,7 @@ model Facility {
   ordersAsOrigin     Order[]     @relation("OrderOrigin")
   performedTests     OrderTest[] @relation("PerformingFacility")
   networks           FacilityNetwork[]
+  userAccess         UserFacilityAccess[]
 
   createdAt DateTime @default(now())
 }
@@ -57,16 +58,46 @@ model RoleCapability {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  username     String   // unique together with facility in practice; kept simple for demo
-  passwordHash String
-  role         String   @default("technologist") // 'phlebotomist' | 'technologist' | 'pathologist' | 'lab_manager' | 'admin'
-  facilityId   String
-  facility     Facility @relation(fields: [facilityId], references: [id])
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  name           String
+  username       String   @unique // one account per person, now — not per facility
+  passwordHash   String
+  role           String   @default("technologist") // 'phlebotomist' | 'technologist' | 'pathologist' | 'lab_manager' | 'admin'
+  facilityId     String   // home facility — used as the default choice when more than one is authorized
+  facility       Facility @relation(fields: [facilityId], references: [id])
+  facilityAccess UserFacilityAccess[]
+  createdAt      DateTime @default(now())
+}
 
-  @@unique([facilityId, username])
+// Which facilities this account is actually allowed to log into. Almost every account has exactly
+// one row here (their home facility) and never sees a facility picker at login. An account with
+// more than one row — e.g. someone covering two Health Centres — picks between them after their
+// password verifies correctly, never before.
+model UserFacilityAccess {
+  id         String   @id
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facilityId String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, facilityId])
+}
+
+// One row per meaningful action, so the whole process can be monitored at both the user and
+// facility level — who did what, where, and when. userName/facilityName are snapshotted at write
+// time so the log still reads correctly even if that user or facility is later renamed or removed.
+model AuditLog {
+  id           String   @id
+  userId       String?
+  userName     String
+  facilityId   String
+  facilityName String
+  action       String   // short verb/key, e.g. 'login', 'collect', 'accept', 'reject', 'refer', 'certify'
+  entityType   String?  // e.g. 'Order', 'Specimen', 'OrderTest', 'User'
+  entityId     String?
+  details      String?  // short human-readable summary
+  createdAt    DateTime @default(now())
 }
 
 // ---------- Test catalog ----------

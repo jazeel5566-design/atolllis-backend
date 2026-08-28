@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 router.use(requireAuth);
 
@@ -63,6 +64,7 @@ router.post('/:specimenNumber/load-analyser', requireCapability('process'), asyn
     where: { id: { in: toLoad.map(t => t.id) } },
     data: { status: 'processing' },
   });
+  await logAudit(req.user, { action: 'load_analyser', entityType: 'Specimen', entityId: specimen.id, details: `Loaded specimen ${specimen.specimenNumber} to analyser — ${toLoad.length} test(s)` });
 
   const refreshed = await prisma.specimen.findUnique({
     where: { id: specimen.id },
@@ -91,6 +93,7 @@ router.post('/:specimenNumber/accept', requireCapability('accept'), async (req, 
 
   await prisma.specimen.update({ where: { id: specimen.id }, data: { status: 'received', acceptedAt: new Date(), acceptedBy } });
   await prisma.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'received' } });
+  await logAudit(req.user, { action: 'accept', entityType: 'Specimen', entityId: specimen.id, details: `Accepted specimen ${specimen.specimenNumber} (${specimen.category})` });
 
   const refreshed = await prisma.specimen.findUnique({ where: { id: specimen.id }, include: { order: { include: { tests: true, patient: true } } } });
   res.json({
@@ -112,6 +115,7 @@ router.post('/:specimenNumber/reject', requireCapability('accept'), async (req, 
 
   await prisma.specimen.update({ where: { id: specimen.id }, data: { status: 'rejected', rejectionReason: reason, acceptedAt: new Date(), acceptedBy: rejectedBy } });
   await prisma.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'rejected' } });
+  await logAudit(req.user, { action: 'reject', entityType: 'Specimen', entityId: specimen.id, details: `Rejected specimen ${specimen.specimenNumber} (${specimen.category}) — ${reason}` });
 
   const refreshed = await prisma.specimen.findUnique({ where: { id: specimen.id }, include: { order: { include: { tests: true, patient: true } } } });
   res.json({
