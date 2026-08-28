@@ -114,6 +114,7 @@ model TestDefinition {
   criticalLow  Float?
   criticalHigh Float?
   comment      String?
+  isCulture    Boolean @default(false) // true = enters via the structured culture/sensitivity UI, not a plain value
 
   refRanges ReferenceRange[]
 
@@ -291,4 +292,72 @@ model OrderTest {
   validatedBy    String?
   validatedAt    DateTime?
   referredByName String?
+
+  cultureResult CultureResult?
+}
+
+// ---------- Microbiology: organisms, antibiotics, and culture/sensitivity results ----------
+// A microbiology test (isCulture=true on TestDefinition) doesn't get a single value — it gets a
+// structured result: was there growth, which organism(s) if so, and for each organism, how it
+// responded to a panel of antibiotics (Sensitive / Intermediate / Resistant).
+
+model Organism {
+  id    String @id
+  name  String @unique
+  group String? // e.g. "GNB (gram negative bacilli)" — informational grouping only
+
+  antibioticPanel OrganismAntibioticPanel[]
+  findings        OrganismFinding[]
+}
+
+model Antibiotic {
+  id   String @id
+  name String @unique
+
+  organismPanel OrganismAntibioticPanel[]
+  sensitivities AntibioticSensitivity[]
+}
+
+// Which antibiotics are typically tested against a given organism — pre-populates the sensitivity
+// panel when that organism is selected during result entry, matching real AST practice.
+model OrganismAntibioticPanel {
+  id           String     @id
+  organismId   String
+  organism     Organism   @relation(fields: [organismId], references: [id], onDelete: Cascade)
+  antibioticId String
+  antibiotic   Antibiotic @relation(fields: [antibioticId], references: [id], onDelete: Cascade)
+
+  @@unique([organismId, antibioticId])
+}
+
+// One per microbiology OrderTest. Growth status first; if growth, one or more organisms found,
+// each with its own antibiotic sensitivity panel below.
+model CultureResult {
+  id           String    @id
+  orderTestId  String    @unique
+  orderTest    OrderTest @relation(fields: [orderTestId], references: [id], onDelete: Cascade)
+  growthStatus String    // 'no_growth' | 'growth' | 'contaminated'
+  createdAt    DateTime  @default(now())
+
+  organisms OrganismFinding[]
+}
+
+model OrganismFinding {
+  id              String        @id
+  cultureResultId String
+  cultureResult   CultureResult @relation(fields: [cultureResultId], references: [id], onDelete: Cascade)
+  organismId      String
+  organism        Organism      @relation(fields: [organismId], references: [id])
+  colonyCount     String?       // free text, e.g. "> 100,000 CFU/mL" — optional
+
+  sensitivities AntibioticSensitivity[]
+}
+
+model AntibioticSensitivity {
+  id                String          @id
+  organismFindingId String
+  organismFinding   OrganismFinding @relation(fields: [organismFindingId], references: [id], onDelete: Cascade)
+  antibioticId      String
+  antibiotic        Antibiotic      @relation(fields: [antibioticId], references: [id])
+  result            String          // 'S' | 'I' | 'R'
 }

@@ -266,6 +266,8 @@ let session = { token: null, user: null }; // user: { name, facilityId, facility
 let facilitiesCache = [];
 let catalogCache = [];
 let categoriesCache = [];
+let organismsCache = [];
+let antibioticsCache = [];
 let state = { activeView: 'dashboard' };
 
 /* ============================= API CLIENT ============================= */
@@ -345,6 +347,16 @@ const api = {
   createReflexRule: (data) => apiRequest('/reflex-rules', {method:'POST', body:data}),
   updateReflexRule: (id,data) => apiRequest(`/reflex-rules/${id}`, {method:'PUT', body:data}),
   deleteReflexRule: (id) => apiRequest(`/reflex-rules/${id}`, {method:'DELETE'}),
+  organisms: () => apiRequest('/organisms'),
+  createOrganism: (data) => apiRequest('/organisms', {method:'POST', body:data}),
+  deleteOrganism: (id) => apiRequest(`/organisms/${id}`, {method:'DELETE'}),
+  organismPanel: (id) => apiRequest(`/organisms/${id}/panel`),
+  updateOrganismPanel: (id,antibioticIds) => apiRequest(`/organisms/${id}/panel`, {method:'PUT', body:{antibioticIds}}),
+  antibiotics: () => apiRequest('/antibiotics'),
+  createAntibiotic: (data) => apiRequest('/antibiotics', {method:'POST', body:data}),
+  deleteAntibiotic: (id) => apiRequest(`/antibiotics/${id}`, {method:'DELETE'}),
+  cultureResult: (orderId,code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`),
+  saveCultureResult: (orderId,code,data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`, {method:'POST', body:data}),
   report: (orderId) => apiRequest(`/reports/${orderId}`),
   history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
 };
@@ -1325,11 +1337,14 @@ function renderValidationTab(orders, f){
     const rowId = spec ? spec.specimenNumber : o.memoNumber;
     if(t.status==='received'){
       const tc = test(t.code);
+      const entryHtml = tc?.isCulture
+        ? `<button class="btn btn-sm" onclick="openCultureResultModal('${o.id}','${t.code}')">Enter Culture Result</button>`
+        : `<input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button>`;
       return `<div class="order-card">
         <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
         <div class="test-row">
-          <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">Manual entry — unit fixed to catalog default (${escapeHtml(tc?.units||'')})</div></div>
-          <div><input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button></div>
+          <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">${tc?.isCulture?'Culture & sensitivity':'Manual entry — unit fixed to catalog default ('+escapeHtml(tc?.units||'')+')'}</div></div>
+          <div>${entryHtml}</div>
         </div>
       </div>`;
     }
@@ -1356,6 +1371,108 @@ async function enterManualResult(orderId, code){
     await render();
   });
 }
+
+/* ---------- Culture & Sensitivity entry (microbiology) ---------- */
+let cultureModalState = null;
+async function openCultureResultModal(orderId, code){
+  if(!organismsCache.length) organismsCache = await api.organisms();
+  if(!antibioticsCache.length) antibioticsCache = await api.antibiotics();
+  let existing = null;
+  try{ existing = await api.cultureResult(orderId, code); }catch(e){ /* none yet */ }
+  cultureModalState = {
+    orderId, code,
+    growthStatus: existing?.growthStatus || 'no_growth',
+    organisms: (existing?.organisms||[]).map(o=>({
+      organismId: o.organismId, colonyCount: o.colonyCount||'',
+      sensitivities: Object.fromEntries((o.sensitivities||[]).map(s=>[s.antibioticId, s.result])),
+      panelAntibiotics: (o.sensitivities||[]).map(s=>({id:s.antibioticId, name:s.antibiotic.name})),
+    })),
+  };
+  renderCultureModal();
+}
+function renderCultureModal(){
+  const st = cultureModalState;
+  const tc = test(st.code);
+  const orgRows = st.organisms.map((org,i)=>{
+    const organism = organismsCache.find(o=>o.id===org.organismId);
+    const panelRows = (org.panelAntibiotics||[]).map(ab=>`
+      <div class="test-row" style="padding:4px 0;">
+        <span style="font-size:12.5px;">${escapeHtml(ab.name)}</span>
+        <select onchange="setSensitivity(${i},'${ab.id}',this.value)" style="width:90px;">
+          <option value="">—</option>
+          <option value="S" ${org.sensitivities[ab.id]==='S'?'selected':''}>S</option>
+          <option value="I" ${org.sensitivities[ab.id]==='I'?'selected':''}>I</option>
+          <option value="R" ${org.sensitivities[ab.id]==='R'?'selected':''}>R</option>
+        </select>
+      </div>`).join('');
+    return `<div class="card" style="margin-top:10px;padding:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <b>${escapeHtml(organism?.name||'Unknown organism')}</b>
+        <button class="btn btn-danger btn-sm" onclick="removeOrganismRow(${i})">Remove</button>
+      </div>
+      <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Colony Count (optional)</label>
+        <input value="${escapeHtml(org.colonyCount)}" placeholder="e.g. > 100,000 CFU/mL" onchange="cultureModalState.organisms[${i}].colonyCount=this.value">
+      </div>
+      <label class="muted" style="font-size:11px;">Antibiotic Sensitivity</label>
+      ${panelRows || '<p class="muted" style="font-size:12px;">No standard panel for this organism yet — set one under Settings → Organisms.</p>'}
+    </div>`;
+  }).join('');
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-head"><h2>Culture & Sensitivity — ${escapeHtml(tc?.name||st.code)}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Growth Status</label>
+        <select id="cult_growth" onchange="cultureModalState.growthStatus=this.value;renderCultureModal();">
+          <option value="no_growth" ${st.growthStatus==='no_growth'?'selected':''}>No Growth</option>
+          <option value="growth" ${st.growthStatus==='growth'?'selected':''}>Growth</option>
+          <option value="contaminated" ${st.growthStatus==='contaminated'?'selected':''}>Contaminated Specimen</option>
+        </select>
+      </div>
+      ${st.growthStatus==='growth'? `
+        <div id="cultOrganisms">${orgRows}</div>
+        <div class="grid grid-2" style="margin-top:10px;align-items:end;">
+          <div class="field" style="margin-bottom:0;"><label>Add Organism</label>
+            <select id="cult_add_organism">${organismsCache.filter(o=>!st.organisms.some(x=>x.organismId===o.id)).map(o=>`<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('') || '<option value="">— no organisms defined yet —</option>'}</select>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="addOrganismRow()">+ Add</button>
+        </div>
+      ` : ''}
+      <div class="actions-row" style="margin-top:14px;"><button class="btn btn-teal" onclick="saveCultureResultModal()">Save Culture Result</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function addOrganismRow(){
+  const organismId = document.getElementById('cult_add_organism').value;
+  if(!organismId) return;
+  const panel = await api.organismPanel(organismId);
+  cultureModalState.organisms.push({
+    organismId, colonyCount: '', sensitivities: {},
+    panelAntibiotics: panel.map(p=>({id:p.antibioticId, name:p.antibioticName})),
+  });
+  renderCultureModal();
+}
+function removeOrganismRow(i){ cultureModalState.organisms.splice(i,1); renderCultureModal(); }
+function setSensitivity(i, antibioticId, value){
+  if(value) cultureModalState.organisms[i].sensitivities[antibioticId] = value;
+  else delete cultureModalState.organisms[i].sensitivities[antibioticId];
+}
+async function saveCultureResultModal(){
+  const st = cultureModalState;
+  if(st.growthStatus==='growth' && !st.organisms.length){ showToast('Add at least one organism, or change growth status.'); return; }
+  const payload = {
+    growthStatus: st.growthStatus,
+    organisms: st.growthStatus==='growth' ? st.organisms.map(o=>({
+      organismId: o.organismId, colonyCount: o.colonyCount||null,
+      sensitivities: Object.entries(o.sensitivities).map(([antibioticId,result])=>({antibioticId,result})),
+    })) : [],
+  };
+  await withErrorToast(async ()=>{
+    await api.saveCultureResult(st.orderId, st.code, payload);
+    closeModal(); await render();
+    showToast('Culture result saved.');
+  });
+}
+
 async function certifyResult(orderId, code){
   await withErrorToast(async ()=>{
     const result = await api.certify(orderId, code);
@@ -1473,6 +1590,22 @@ async function renderReportSheet(orderId){
     if(l.status){
       return `<tr><td>${escapeHtml(l.name)}</td><td class="mono">${l.code}</td><td>${escapeHtml(test(l.code)?.method||'')}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}${l.referred?` — at ${escapeHtml(l.performingFacility||'')}`:''}</td></tr>`;
     }
+    if(l.isCulture){
+      const cr = l.cultureResult;
+      const growthLabel = {no_growth:'No Growth', growth:'Growth', contaminated:'Contaminated Specimen'}[cr?.growthStatus] || '—';
+      const organismsHtml = (cr?.organisms||[]).map(o=>{
+        const sensRows = (o.sensitivities||[]).map(s=>`<span class="mono" style="margin-right:10px;">${escapeHtml(s.antibiotic.name)}: <b>${escapeHtml(s.result)}</b></span>`).join('');
+        return `<div style="margin-top:4px;"><b>${escapeHtml(o.organism.name)}</b>${o.colonyCount?` — ${escapeHtml(o.colonyCount)}`:''}<div style="font-size:11px;margin-top:2px;">${sensRows||'<span class="muted">No sensitivity data recorded.</span>'}</div></div>`;
+      }).join('');
+      return `<tr>
+        <td colspan="3"><b>${escapeHtml(l.name)}</b> <span class="mono muted">(${l.code})</span></td>
+        <td colspan="2">
+          <div><b>${growthLabel}</b></div>
+          ${organismsHtml}
+          <div class="muted" style="font-size:11px;margin-top:4px;">Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</div>
+        </td>
+      </tr>`;
+    }
     return `<tr>
       <td>${escapeHtml(l.name)}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
       <td class="mono">${l.code}</td>
@@ -1561,6 +1694,8 @@ async function viewSettings(){
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='panels'?'active':''}" onclick="settingsTab='panels';render();">Panels</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='aliases'?'active':''}" onclick="settingsTab='aliases';render();">HIS Aliases</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='reflex'?'active':''}" onclick="settingsTab='reflex';render();">Reflex Rules</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='organisms'?'active':''}" onclick="settingsTab='organisms';render();">Organisms</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='antibiotics'?'active':''}" onclick="settingsTab='antibiotics';render();">Antibiotics</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
@@ -1573,6 +1708,8 @@ async function viewSettings(){
       : settingsTab==='panels'? await viewPanels()
       : settingsTab==='aliases'? await viewAliases()
       : settingsTab==='reflex'? await viewReflexRules()
+      : settingsTab==='organisms'? await viewOrganisms()
+      : settingsTab==='antibiotics'? await viewAntibiotics()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
       : settingsTab==='audit'? await viewAuditLog()
@@ -2098,6 +2235,121 @@ async function deleteReflexRule(id){
   await withErrorToast(async ()=>{ await api.deleteReflexRule(id); await render(); });
 }
 
+/* ---------- Organisms (manage_catalog) — microbiology master data ---------- */
+async function viewOrganisms(){
+  organismsCache = await api.organisms();
+  const rows = organismsCache.map(o=>`<tr>
+    <td>${escapeHtml(o.name)}</td>
+    <td class="muted">${escapeHtml(o.group||'—')}</td>
+    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openOrganismPanelModal('${o.id}')">Antibiotic Panel</button> <button class="btn btn-danger btn-sm" onclick="deleteOrganism('${o.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Organisms</h1><p>Microbiology organism master list, used when entering a culture result. Each organism can have its own standard antibiotic sensitivity panel.</p></div>
+      <button class="btn" onclick="openOrganismModal()">+ New Organism</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th>Group</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="3" class="empty">No organisms defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openOrganismModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>New Organism</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Name</label><input id="org_name" placeholder="e.g. Escherichia coli"></div>
+      <div class="field"><label>Group (optional)</label><input id="org_group" placeholder="e.g. GNB (gram negative bacilli)"></div>
+      <div class="actions-row"><button class="btn" onclick="saveOrganism()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveOrganism(){
+  const name = (document.getElementById('org_name').value||'').trim();
+  const group = (document.getElementById('org_group').value||'').trim();
+  if(!name){ showToast('Enter a name.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createOrganism({name, group: group||null});
+    closeModal(); await render();
+    showToast('Organism saved.');
+  });
+}
+async function deleteOrganism(id){
+  if(!confirm('Delete this organism? Its antibiotic panel will be removed too.')) return;
+  await withErrorToast(async ()=>{ await api.deleteOrganism(id); await render(); });
+}
+async function openOrganismPanelModal(organismId){
+  if(!antibioticsCache.length) antibioticsCache = await api.antibiotics();
+  const panel = await api.organismPanel(organismId);
+  const selectedIds = new Set(panel.map(p=>p.antibioticId));
+  const organism = organismsCache.find(o=>o.id===organismId);
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-head"><h2>${escapeHtml(organism?.name||'')} — Antibiotic Panel</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">These are the antibiotics offered by default when this organism is selected during culture result entry.</p>
+      <div class="checklist">
+        ${antibioticsCache.map(a=>`<label class="check-item" style="cursor:pointer;">
+          <input type="checkbox" name="panelAb" value="${a.id}" ${selectedIds.has(a.id)?'checked':''}>
+          <span>${escapeHtml(a.name)}</span>
+        </label>`).join('') || '<p class="muted">No antibiotics defined yet — add some under Settings → Antibiotics first.</p>'}
+      </div>
+      <div class="actions-row"><button class="btn" onclick="saveOrganismPanel('${organismId}')">Save Panel</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveOrganismPanel(organismId){
+  const antibioticIds = Array.from(document.querySelectorAll('input[name="panelAb"]:checked')).map(el=>el.value);
+  await withErrorToast(async ()=>{
+    await api.updateOrganismPanel(organismId, antibioticIds);
+    closeModal();
+    showToast('Antibiotic panel saved.');
+  });
+}
+
+/* ---------- Antibiotics (manage_catalog) ---------- */
+async function viewAntibiotics(){
+  antibioticsCache = await api.antibiotics();
+  const rows = antibioticsCache.map(a=>`<tr>
+    <td>${escapeHtml(a.name)}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteAntibiotic('${a.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Antibiotics</h1><p>Antibiotic master list, used to build each organism's sensitivity panel.</p></div>
+      <button class="btn" onclick="openAntibioticModal()">+ New Antibiotic</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="2" class="empty">No antibiotics defined yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openAntibioticModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-head"><h2>New Antibiotic</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Name</label><input id="ab_name" placeholder="e.g. Amikacin"></div>
+      <div class="actions-row"><button class="btn" onclick="saveAntibiotic()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveAntibiotic(){
+  const name = (document.getElementById('ab_name').value||'').trim();
+  if(!name){ showToast('Enter a name.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createAntibiotic({name});
+    closeModal(); await render();
+    showToast('Antibiotic saved.');
+  });
+}
+async function deleteAntibiotic(id){
+  if(!confirm('Delete this antibiotic?')) return;
+  await withErrorToast(async ()=>{ await api.deleteAntibiotic(id); await render(); });
+}
+
 /* ---------- Connection (read-only, Regional admin only) ---------- */
 async function viewConnection(){
   let health = null, healthError = '';
@@ -2202,6 +2454,11 @@ function testModalHtml(isEdit){
         </select>
       </div>
       <div class="field">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="f_isculture" ${t.isCulture?'checked':''}> This is a microbiology culture test — results are entered as growth status + organism(s) + antibiotic sensitivity, not a single value.
+        </label>
+      </div>
+      <div class="field">
         <label>Reference Ranges</label>
         <div id="rangeTable">${rangeRowsHtml()}</div>
         <button type="button" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="addRangeRow()">+ Add reference range row</button>
@@ -2248,6 +2505,7 @@ async function saveTest(){
     minTier: document.getElementById('f_tier').value,
     criticalLow: document.getElementById('f_cl').value===''? null : parseFloat(document.getElementById('f_cl').value),
     criticalHigh: document.getElementById('f_ch').value===''? null : parseFloat(document.getElementById('f_ch').value),
+    isCulture: document.getElementById('f_isculture').checked,
     comment: document.getElementById('f_comment').value,
     refRanges: draftTest.refRanges.filter(r=>r.low!==''&&r.high!==''&&r.low!=null&&r.high!=null),
   };

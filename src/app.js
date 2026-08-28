@@ -26,6 +26,8 @@ app.use('/api/audit', require('./routes/audit'));
 app.use('/api/test-aliases', require('./routes/test-aliases'));
 app.use('/api/test-panels', require('./routes/test-panels'));
 app.use('/api/reflex-rules', require('./routes/reflex-rules'));
+app.use('/api/organisms', require('./routes/organisms'));
+app.use('/api/antibiotics', require('./routes/antibiotics'));
 app.use('/api/tests', require('./routes/tests'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/history', require('./routes/history'));

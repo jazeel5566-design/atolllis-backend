@@ -50,6 +50,67 @@ router.post('/:orderId/:code/manual-result', requireCapability('process'), async
   res.json(updated);
 });
 
+// Culture & sensitivity result — the structured alternative to a plain value, used for tests where
+// TestDefinition.isCulture is true. Growth status, then zero or more organisms found, each with
+// its own antibiotic sensitivity panel (S/I/R).
+router.get('/:orderId/:code/culture-result', requireCapability('process'), async (req, res) => {
+  const { orderId, code } = req.params;
+  const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
+  if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
+  const result = await prisma.cultureResult.findUnique({
+    where: { orderTestId: t.id },
+    include: { organisms: { include: { organism: true, sensitivities: { include: { antibiotic: true } } } } },
+  });
+  res.json(result);
+});
+
+router.post('/:orderId/:code/culture-result', requireCapability('process'), async (req, res) => {
+  const { orderId, code } = req.params;
+  const { growthStatus, organisms } = req.body || {};
+  if (!['no_growth', 'growth', 'contaminated'].includes(growthStatus)) {
+    return res.status(400).json({ error: 'growthStatus must be no_growth, growth, or contaminated' });
+  }
+  if (growthStatus === 'growth' && (!Array.isArray(organisms) || !organisms.length)) {
+    return res.status(400).json({ error: 'At least one organism is required when growthStatus is "growth"' });
+  }
+
+  const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
+  if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
+  if (t.status !== 'received') return res.status(409).json({ error: `Test is not awaiting entry (status: ${t.status})` });
+
+  // Replace any previous attempt cleanly rather than trying to diff it.
+  const existing = await prisma.cultureResult.findUnique({ where: { orderTestId: t.id } });
+  if (existing) await prisma.cultureResult.delete({ where: { id: existing.id } });
+
+  const cultureResult = await prisma.cultureResult.create({
+    data: {
+      id: uid('CULT'), orderTestId: t.id, growthStatus,
+      organisms: {
+        create: (organisms || []).map(o => ({
+          id: uid('OF'), organismId: o.organismId, colonyCount: o.colonyCount || null,
+          sensitivities: {
+            create: (o.sensitivities || []).filter(s => ['S', 'I', 'R'].includes(s.result)).map(s => ({
+              id: uid('AS'), antibioticId: s.antibioticId, result: s.result,
+            })),
+          },
+        })),
+      },
+    },
+    include: { organisms: { include: { organism: true, sensitivities: { include: { antibiotic: true } } } } },
+  });
+
+  const summary = growthStatus === 'no_growth' ? 'No growth'
+    : growthStatus === 'contaminated' ? 'Contaminated specimen'
+    : `Growth: ${cultureResult.organisms.map(o => o.organism.name).join(', ')}`;
+
+  const updated = await prisma.orderTest.update({
+    where: { id: t.id },
+    data: { value: summary, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
+  });
+  await logAudit(req.user, { action: 'culture_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${summary}` });
+  res.json({ ...updated, cultureResult });
+});
+
 // Validate & certify — done only by the facility that actually performed the test.
 router.post('/:orderId/:code/certify', requireCapability('certify'), async (req, res) => {
   const { orderId, code } = req.params;
