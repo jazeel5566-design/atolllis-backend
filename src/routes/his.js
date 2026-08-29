@@ -38,8 +38,10 @@ router.get('/search', requireAuth, async (req, res) => {
 
 // Dev/demo utility only: seeds a new memo into the mock external system so the fetch flow can be
 // exercised repeatedly without a real HIS/Billing integration. Remove this route in production —
-// memo creation belongs entirely to the external system, never to this app.
+// memo creation belongs entirely to the external system, never to this app. Admin-only, since it
+// writes directly into data every facility treats as if it came from the real HIS.
 router.post('/memos', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only an Admin can create a test memo' });
   const { memoNumber, source, orderedBy, patient, tests } = req.body || {};
   if (!memoNumber || !patient || !tests || !tests.length) {
     return res.status(400).json({ error: 'memoNumber, patient, and a non-empty tests array are required' });

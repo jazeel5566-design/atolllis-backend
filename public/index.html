@@ -128,9 +128,11 @@
   .test-name{font-weight:500;}
   .test-meta{font-size:11.5px;color:var(--mute);}
   .result-input{width:90px;display:inline-block;}
-  .flag-High,.flag-CriticalHigh{color:var(--crimson);font-weight:700;}
-  .flag-Low,.flag-CriticalLow{color:var(--amber);font-weight:700;}
+  .flag-High{color:var(--crimson);font-weight:700;}
+  .flag-Low{color:var(--amber);font-weight:700;}
   .flag-Normal{color:var(--teal-dark);font-weight:600;}
+  .flag-CriticalHigh,.flag-CriticalLow{background:var(--crimson);color:#fff;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.3px;}
+  .flag-CriticalHigh::before,.flag-CriticalLow::before{content:"⚠ ";}
   .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);}
   .tab{padding:9px 14px;font-size:13px;font-weight:500;color:var(--mute);cursor:pointer;border-bottom:2px solid transparent;}
@@ -334,7 +336,7 @@ const api = {
   rejectSpecimen: (specimenNumber, reason) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject`, {method:'POST', body:{reason}}),
   analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
-  certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
+  certify: (orderId, code, criticalNotifiedTo) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST', body:{criticalNotifiedTo}}),
   addReflexTest: (orderId, code) => apiRequest(`/tests/${orderId}/add-reflex-test`, {method:'POST', body:{code}}),
   testAliases: () => apiRequest('/test-aliases'),
   createTestAlias: (data) => apiRequest('/test-aliases', {method:'POST', body:data}),
@@ -1299,8 +1301,20 @@ function renderProcessingTab(orders, f){
 
   const scanPanel = analyserScanResult ? renderSpecimenScanPanel(analyserScanResult) : '';
 
+  const q = worklistSearch.trim().toLowerCase();
+  const filteredOrders = q ? orders.filter(o=>{
+    const p = o.patient;
+    const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
+    return specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+  }) : orders;
+
+  const searchBox = `<div class="card"><div class="field" style="max-width:400px;margin-bottom:0;">
+    <label>Search the list below by Patient, Hospital No., ID No., Memo No., or Specimen No.</label>
+    <input id="procSearch" value="${escapeHtml(worklistSearch)}" placeholder="Type or paste…"
+      oninput="worklistSearch=this.value;render();const el=document.getElementById('procSearch');if(el)el.focus();"></div></div>`;
+
   // Browsable fallback for finding a specimen without its number in hand.
-  const rows = orders.map(o=>{
+  const rows = filteredOrders.map(o=>{
     const p = o.patient;
     const specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing'].includes(t.status)));
     if(!specimens.length) return '';
@@ -1316,7 +1330,7 @@ function renderProcessingTab(orders, f){
     </div>`;
   }).join('');
 
-  return scanBox + scanPanel + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>Nothing awaiting analyser processing.</div>` : ''));
+  return scanBox + scanPanel + searchBox + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>${q?'No matching specimen.':'Nothing awaiting analyser processing.'}</div>` : ''));
 }
 function renderSpecimenScanPanel(s){
   const anyReceived = s.tests.some(t=>t.status==='received');
@@ -1408,9 +1422,11 @@ function renderValidationTab(orders, f){
     const rowId = spec ? spec.specimenNumber : o.memoNumber;
     if(t.status==='received'){
       const tc = test(t.code);
+      const range = (tc && !tc.isCulture) ? matchRange(tc, p) : null;
+      const rangeHint = range ? `<div class="muted" style="font-size:11px;">Expected: ${range.low} – ${range.high} ${tc.units||''}</div>` : '';
       const entryHtml = tc?.isCulture
         ? `<button class="btn btn-sm" onclick="openCultureResultModal('${o.id}','${t.code}')">Enter Culture Result</button>`
-        : `<input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button>`;
+        : `<input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button>${rangeHint}`;
       return `<div class="order-card">
         <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
         <div class="test-row">
@@ -1546,7 +1562,18 @@ async function saveCultureResultModal(){
 
 async function certifyResult(orderId, code){
   await withErrorToast(async ()=>{
-    const result = await api.certify(orderId, code);
+    let result;
+    try{
+      result = await api.certify(orderId, code);
+    }catch(e){
+      if(e.data && e.data.requiresCriticalNotification){
+        const notifiedTo = prompt(`⚠ ${e.data.flagLabel} — this is a critical value. Who was notified (e.g. the ordering clinician)? Required before certifying.`);
+        if(!notifiedTo || !notifiedTo.trim()) return;
+        result = await api.certify(orderId, code, notifiedTo.trim());
+      }else{
+        throw e;
+      }
+    }
     await render();
     showToast(`Result certified by ${session.user.name} — status now Completed.`);
     if(result.reflexSuggestions && result.reflexSuggestions.length){
@@ -1682,7 +1709,8 @@ async function renderReportSheet(orderId){
       <td class="mono">${l.code}</td>
       <td>${escapeHtml(l.method||'')}</td>
       <td class="mono flag-${(l.flag||'').replace(' ','')}">${l.value} ${l.unit||''} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</td>
-      <td class="muted" style="font-size:12px;">${l.rangeText||''}<br>Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</td>
+      <td class="muted" style="font-size:12px;">${l.rangeText||''}<br>Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}
+      ${l.criticalNotifiedTo? `<br><span style="color:var(--crimson);font-weight:700;">⚠ Notified: ${escapeHtml(l.criticalNotifiedTo)}, ${fmtDate(l.criticalNotifiedAt)}</span>`:''}</td>
     </tr>`;
   }).join('');
   return `

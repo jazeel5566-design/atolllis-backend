@@ -3,6 +3,7 @@ const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { uid } = require('../utils/id');
+const { evalResult } = require('../utils/domain');
 
 router.use(requireAuth);
 
@@ -25,7 +26,7 @@ router.post('/:orderId/:code/analyser-result', requireCapability('process'), asy
 
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: { value: String(value), unit, status: 'interfaced', enteredAt: new Date(), enteredBy: 'Analyser Interface' },
+    data: { value: String(value), unit, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
   });
   await logAudit(req.user, { action: 'analyser_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} ${unit} (from analyser)` });
   res.json(updated);
@@ -44,7 +45,7 @@ router.post('/:orderId/:code/manual-result', requireCapability('process'), async
   const tc = await prisma.testDefinition.findUnique({ where: { code } });
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: 'Manual Entry' },
+    data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
   });
   await logAudit(req.user, { action: 'manual_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} (manual entry)` });
   res.json(updated);
@@ -114,17 +115,31 @@ router.post('/:orderId/:code/culture-result', requireCapability('process'), asyn
 // Validate & certify — done only by the facility that actually performed the test.
 router.post('/:orderId/:code/certify', requireCapability('certify'), async (req, res) => {
   const { orderId, code } = req.params;
+  const { criticalNotifiedTo } = req.body || {};
   const validatedBy = req.user.name; // the certifying pathologist/lab manager — not client-supplied
 
   const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
   if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
   if (t.status !== 'interfaced') return res.status(409).json({ error: `Test is not awaiting validation (status: ${t.status})` });
 
+  // A critical (panic) value cannot be certified until whoever entered/validated it confirms the
+  // ordering clinician was actually told — this is a real patient-safety requirement, not paperwork.
+  const tc = await prisma.testDefinition.findUnique({ where: { code }, include: { refRanges: true } });
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { patient: true } });
+  const info = tc && order ? evalResult(tc, order.patient, t.value) : { flag: 'N/A' };
+  const isCritical = info.flag === 'CriticalLow' || info.flag === 'CriticalHigh';
+  if (isCritical && !criticalNotifiedTo) {
+    return res.status(400).json({ error: 'This is a critical value — enter who was notified before certifying.', requiresCriticalNotification: true, flag: info.flag, flagLabel: info.flagLabel });
+  }
+
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: { status: 'completed', validatedBy, validatedAt: new Date() },
+    data: {
+      status: 'completed', validatedBy, validatedAt: new Date(),
+      ...(isCritical ? { criticalNotifiedTo, criticalNotifiedAt: new Date() } : {}),
+    },
   });
-  await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified` });
+  await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified${isCritical ? ` (critical value, notified ${criticalNotifiedTo})` : ''}` });
 
   // Reflex suggestions — never auto-ordered. Just surfaced here for the certifying staff to act
   // on with one click if they agree; adding one still requires a real specimen draw afterward,

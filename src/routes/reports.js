@@ -48,6 +48,7 @@ router.get('/:orderId', async (req, res) => {
       ...info,
       performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber,
       validatedBy: t.validatedBy, validatedAt: t.validatedAt, comment: tc ? tc.comment : null,
+      criticalNotifiedTo: t.criticalNotifiedTo, criticalNotifiedAt: t.criticalNotifiedAt,
     };
   }));
 

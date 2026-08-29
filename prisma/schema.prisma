@@ -292,6 +292,8 @@ model OrderTest {
   validatedBy    String?
   validatedAt    DateTime?
   referredByName String?
+  criticalNotifiedTo String?   // who was called/told, for a critical (panic) value — required before certify
+  criticalNotifiedAt DateTime?
 
   cultureResult CultureResult?
 }
