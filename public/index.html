@@ -1271,43 +1271,47 @@ let validationFilter = 'interfaced';
 let analyserScanResult = null;
 async function viewProcessingPage(){
   const fid = session.user.facilityId, f = fac(fid);
-  const [analyserQ, validationQ, incomingQ] = await Promise.all([
-    api.orders('analyser_queue'), api.orders('validation_queue'), api.orders('incoming_referrals'),
+  const [allOrders, validationQ, incomingQ] = await Promise.all([
+    api.orders(), api.orders('validation_queue'), api.orders('incoming_referrals'),
   ]);
+  const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing'].includes(t.status)));
   return `
     <div class="pagehead"><h1>Result Processing</h1><p>Analyser interface and validation for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
-      <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingDateFilter='';render();">Analyser Processing (${analyserQ.length})</div>
+      <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';render();">Analyser Processing (${analyserQ.length})</div>
       <div class="tab ${processingTab==='validation'?'active':''}" onclick="processingTab='validation';worklistSearch='';render();">Result Entry & Validation (${validationQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
     </div>
-    ${processingTab==='analyser'? renderProcessingTab(analyserQ, f)
+    ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
       : processingTab==='validation'? renderValidationTab(validationQ, f)
       : renderIncomingTab(incomingQ, f)}
   `;
 }
-// The analyzer identifies work entirely by the specimen barcode on the tube — not by order — so
-// this screen is scan-first: read (or type) the specimen number, see exactly what's on that tube.
 let processingCategoryFilter = '';
+let processingStatusFilter = '';
 let processingDateFilter = '';
+const PROCESSING_STATUS_GROUPS = {
+  received: { label: 'Received', testStatuses: ['received'] },
+  processing: { label: 'Loaded to Analyser', testStatuses: ['processing'] },
+  interfaced: { label: 'Interfaced (Awaiting Validation)', testStatuses: ['interfaced'] },
+  certified: { label: 'Certified', testStatuses: ['completed'] },
+};
 function renderProcessingTab(orders, f){
   const filterCard = `<div class="card">
-    <div class="field" style="max-width:400px;margin-bottom:8px;">
-      <label>Scan or enter the Specimen Barcode Number</label>
-      <input id="specimenScanField" placeholder="e.g. EXC..." autocomplete="off"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();scanSpecimenForAnalyser();}">
-    </div>
-    <button class="btn" onclick="scanSpecimenForAnalyser()">Load Specimen</button>
-    <p class="muted" style="font-size:11px;margin-top:8px;">This is the number the analyzer reads directly off the tube — it identifies exactly which test(s) to run, and it's how results coming back get matched to the right patient and order.</p>
-    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
-    <div class="grid grid-3">
-      <div class="field" style="margin-bottom:0;"><label>Search the list below</label>
+    <div class="grid grid-4">
+      <div class="field" style="margin-bottom:0;"><label>Search</label>
         <input id="procSearch" value="${escapeHtml(worklistSearch)}" placeholder="Patient, Hospital No., ID No., Memo No., or Specimen No."
+          onkeydown="if(event.key==='Enter'){event.preventDefault();searchProcessingEnter();}"
           oninput="worklistSearch=this.value;render();const el=document.getElementById('procSearch');if(el)el.focus();"></div>
       <div class="field" style="margin-bottom:0;"><label>Category</label>
         <select onchange="processingCategoryFilter=this.value;render();">
           <option value="">All categories</option>
           ${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${processingCategoryFilter===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+        </select></div>
+      <div class="field" style="margin-bottom:0;"><label>Status</label>
+        <select onchange="processingStatusFilter=this.value;render();">
+          <option value="">All statuses</option>
+          ${Object.entries(PROCESSING_STATUS_GROUPS).map(([k,g])=>`<option value="${k}" ${processingStatusFilter===k?'selected':''}>${g.label}</option>`).join('')}
         </select></div>
       <div class="field" style="margin-bottom:0;"><label>Collected Date</label>
         <input type="date" value="${processingDateFilter}" onchange="processingDateFilter=this.value;render();"></div>
@@ -1324,15 +1328,26 @@ function renderProcessingTab(orders, f){
       const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
       if(!matchOrder) return '';
     }
-    let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing'].includes(t.status)));
+    // Only ever show specimens that have been accepted into this facility — a specimen still
+    // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
+    let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing','interfaced','completed'].includes(t.status)));
     if(processingCategoryFilter) specimens = specimens.filter(s=>s.category===processingCategoryFilter);
+    if(processingStatusFilter){
+      const group = PROCESSING_STATUS_GROUPS[processingStatusFilter];
+      specimens = specimens.filter(s=>{
+        const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+        return stests.some(t=>group.testStatuses.includes(t.status));
+      });
+    }
+    // Date always means "collected on" — a specimen's collection date never changes, regardless
+    // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
     if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
     if(!specimens.length) return '';
     return `<div class="order-card">
       <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
       ${specimens.map(s=>{
         const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
-        return `<div class="test-row" style="cursor:pointer;" onclick="document.getElementById('specimenScanField').value='${s.specimenNumber}';scanSpecimenForAnalyser();">
+        return `<div class="test-row" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
           <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
           <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
         </div>`;
@@ -1340,7 +1355,25 @@ function renderProcessingTab(orders, f){
     </div>`;
   }).join('');
 
-  return filterCard + scanPanel + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>${q||processingCategoryFilter||processingDateFilter?'No matching specimen.':'Nothing awaiting analyser processing.'}</div>` : ''));
+  return filterCard + scanPanel + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>${q||processingCategoryFilter||processingStatusFilter||processingDateFilter?'No matching specimen.':'Nothing here yet.'}</div>` : ''));
+}
+// Pressing Enter in Search acts like a scan: if it narrows to exactly one specimen, jump straight
+// into it — same ergonomics as scanning a barcode, without a separate dedicated field for it.
+function searchProcessingEnter(){
+  const q = worklistSearch.trim().toLowerCase();
+  if(!q) return;
+  const matches = [];
+  document.querySelectorAll('[data-specimen-row]').forEach(el=>{
+    const num = el.getAttribute('data-specimen-row');
+    if(num.toLowerCase().includes(q)) matches.push(num);
+  });
+  if(matches.length===1) loadSpecimenPanel(matches[0]);
+}
+async function loadSpecimenPanel(specimenNumber){
+  await withErrorToast(async ()=>{
+    analyserScanResult = await api.getSpecimen(specimenNumber);
+    await render();
+  });
 }
 function renderSpecimenScanPanel(s){
   const anyReceived = s.tests.some(t=>t.status==='received');
@@ -1357,15 +1390,6 @@ function renderSpecimenScanPanel(s){
     </div>
     ${s.tests.map(t=>renderProcessingTestRow({id:s.orderId}, t)).join('')}
   </div>`;
-}
-async function scanSpecimenForAnalyser(){
-  const el = document.getElementById('specimenScanField');
-  const num = (el.value||'').trim();
-  if(!num){ showToast('Enter or scan a specimen number.'); return; }
-  await withErrorToast(async ()=>{
-    analyserScanResult = await api.getSpecimen(num);
-    await render();
-  });
 }
 async function loadSpecimenToAnalyser(specimenNumber){
   await withErrorToast(async ()=>{
@@ -1644,6 +1668,7 @@ async function receiveReferral(orderId){
 /* ============================= REPORTS ============================= */
 let selectedReportOrder = null;
 let reportSearch = '';
+let reportCollectedDateFilter = '';
 let reportsTab = 'samples';
 
 async function viewReportsPage(){
@@ -1665,26 +1690,31 @@ async function viewReportsInner(){
     const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
     return specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
   });
+  if(reportCollectedDateFilter) orders = orders.filter(o=>o.collectedAt && o.collectedAt.slice(0,10)===reportCollectedDateFilter);
   const list = orders.map(o=>{
     const p = o.patient;
     const doneCount = o.tests.filter(t=>t.status==='completed').length;
     const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
     const anyDone = doneCount>0;
     return `<tr style="cursor:pointer;" onclick="selectedReportOrder='${o.id}';render();">
-      <td class="mono">${escapeHtml(o.memoNumber||o.id)}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.createdAt)}</td>
+      <td class="mono">${escapeHtml(o.memoNumber||o.id)}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
       <td>${doneCount}/${collectedCount} completed</td>
       <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectedReportOrder='${o.id}';render();">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
     </tr>`;
   }).join('');
   return `
     <div class="card">
-      <div class="field" style="max-width:420px;margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., Memo No., or Specimen No.</label>
-        <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Type or paste…"
-          oninput="reportSearch=this.value;render();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
+      <div class="grid grid-2">
+        <div class="field" style="margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., Memo No., or Specimen No.</label>
+          <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Type or paste…"
+            oninput="reportSearch=this.value;render();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
+        <div class="field" style="margin-bottom:0;"><label>Collected Date <span class="muted" style="font-weight:400;">— useful when a walk-in patient knows the date but not their memo number</span></label>
+          <input type="date" value="${reportCollectedDateFilter}" onchange="reportCollectedDateFilter=this.value;render();"></div>
+      </div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Memo No.</th><th>Patient</th><th>Date</th><th>Status</th><th></th></tr></thead>
-      <tbody>${list || `<tr><td colspan="5" class="empty">No samples found.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Memo No.</th><th>Patient</th><th>Collected</th><th>Status</th><th></th></tr></thead>
+      <tbody>${list || `<tr><td colspan="5" class="empty">${q||reportCollectedDateFilter?'No matching samples.':'No samples found.'}</td></tr>`}</tbody></table>
     </div>
     ${selectedReportOrder ? await renderReportSheet(selectedReportOrder) : ''}
   `;
