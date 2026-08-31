@@ -1669,6 +1669,8 @@ async function receiveReferral(orderId){
 let selectedReportOrder = null;
 let reportSearch = '';
 let reportCollectedDateFilter = '';
+let reportCategoryFilter = '';
+let reportStatusFilter = '';
 let reportsTab = 'samples';
 
 async function viewReportsPage(){
@@ -1691,6 +1693,15 @@ async function viewReportsInner(){
     return specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
   });
   if(reportCollectedDateFilter) orders = orders.filter(o=>o.collectedAt && o.collectedAt.slice(0,10)===reportCollectedDateFilter);
+  if(reportCategoryFilter) orders = orders.filter(o=>o.tests.some(t=>(test(t.code)?.category)===reportCategoryFilter));
+  if(reportStatusFilter) orders = orders.filter(o=>{
+    const doneCount = o.tests.filter(t=>t.status==='completed').length;
+    const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
+    if(reportStatusFilter==='not_completed') return doneCount===0;
+    if(reportStatusFilter==='partial') return doneCount>0 && doneCount<collectedCount;
+    if(reportStatusFilter==='fully_completed') return collectedCount>0 && doneCount===collectedCount;
+    return true;
+  });
   const list = orders.map(o=>{
     const p = o.patient;
     const doneCount = o.tests.filter(t=>t.status==='completed').length;
@@ -1704,17 +1715,30 @@ async function viewReportsInner(){
   }).join('');
   return `
     <div class="card">
-      <div class="grid grid-2">
-        <div class="field" style="margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., Memo No., or Specimen No.</label>
-          <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Type or paste…"
+      <div class="grid grid-4">
+        <div class="field" style="margin-bottom:0;"><label>Search</label>
+          <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Patient, Hospital No., ID No., Memo No., or Specimen No."
             oninput="reportSearch=this.value;render();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
-        <div class="field" style="margin-bottom:0;"><label>Collected Date <span class="muted" style="font-weight:400;">— useful when a walk-in patient knows the date but not their memo number</span></label>
+        <div class="field" style="margin-bottom:0;"><label>Category</label>
+          <select onchange="reportCategoryFilter=this.value;render();">
+            <option value="">All categories</option>
+            ${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${reportCategoryFilter===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select></div>
+        <div class="field" style="margin-bottom:0;"><label>Status</label>
+          <select onchange="reportStatusFilter=this.value;render();">
+            <option value="">All statuses</option>
+            <option value="not_completed" ${reportStatusFilter==='not_completed'?'selected':''}>Not Yet Completed</option>
+            <option value="partial" ${reportStatusFilter==='partial'?'selected':''}>Partially Completed</option>
+            <option value="fully_completed" ${reportStatusFilter==='fully_completed'?'selected':''}>Fully Completed</option>
+          </select></div>
+        <div class="field" style="margin-bottom:0;"><label>Collected Date</label>
           <input type="date" value="${reportCollectedDateFilter}" onchange="reportCollectedDateFilter=this.value;render();"></div>
       </div>
+      <p class="muted" style="font-size:11px;margin-top:8px;">Collected Date is useful when a walk-in patient knows the date but not their memo number.</p>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Memo No.</th><th>Patient</th><th>Collected</th><th>Status</th><th></th></tr></thead>
-      <tbody>${list || `<tr><td colspan="5" class="empty">${q||reportCollectedDateFilter?'No matching samples.':'No samples found.'}</td></tr>`}</tbody></table>
+      <tbody>${list || `<tr><td colspan="5" class="empty">${q||reportCollectedDateFilter||reportCategoryFilter||reportStatusFilter?'No matching samples.':'No samples found.'}</td></tr>`}</tbody></table>
     </div>
     ${selectedReportOrder ? await renderReportSheet(selectedReportOrder) : ''}
   `;
