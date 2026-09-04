@@ -1266,24 +1266,21 @@ async function rejectSpecimen(specimenNumber){
 
 /* ============================= RESULT PROCESSING ============================= */
 let processingTab = 'analyser';
-let validationFilter = 'interfaced';
 
 let analyserScanResult = null;
 async function viewProcessingPage(){
   const fid = session.user.facilityId, f = fac(fid);
-  const [allOrders, validationQ, incomingQ] = await Promise.all([
-    api.orders(), api.orders('validation_queue'), api.orders('incoming_referrals'),
+  const [allOrders, incomingQ] = await Promise.all([
+    api.orders(), api.orders('incoming_referrals'),
   ]);
-  const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing'].includes(t.status)));
+  const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)));
   return `
     <div class="pagehead"><h1>Result Processing</h1><p>Analyser interface and validation for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
       <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';render();">Analyser Processing (${analyserQ.length})</div>
-      <div class="tab ${processingTab==='validation'?'active':''}" onclick="processingTab='validation';worklistSearch='';render();">Result Entry & Validation (${validationQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
     </div>
     ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
-      : processingTab==='validation'? renderValidationTab(validationQ, f)
       : renderIncomingTab(incomingQ, f)}
   `;
 }
@@ -1321,41 +1318,50 @@ function renderProcessingTab(orders, f){
   const scanPanel = analyserScanResult ? renderSpecimenScanPanel(analyserScanResult) : '';
 
   const q = worklistSearch.trim().toLowerCase();
-  const rows = orders.map(o=>{
-    const p = o.patient;
-    if(q){
-      const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
-      const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
-      if(!matchOrder) return '';
-    }
-    // Only ever show specimens that have been accepted into this facility — a specimen still
-    // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
-    let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing','interfaced','completed'].includes(t.status)));
-    if(processingCategoryFilter) specimens = specimens.filter(s=>s.category===processingCategoryFilter);
-    if(processingStatusFilter){
-      const group = PROCESSING_STATUS_GROUPS[processingStatusFilter];
-      specimens = specimens.filter(s=>{
-        const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
-        return stests.some(t=>group.testStatuses.includes(t.status));
-      });
-    }
-    // Date always means "collected on" — a specimen's collection date never changes, regardless
-    // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
-    if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
-    if(!specimens.length) return '';
-    return `<div class="order-card">
-      <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
-      ${specimens.map(s=>{
-        const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
-        return `<div class="test-row" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
-          <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
-          <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
-        </div>`;
-      }).join('')}
-    </div>`;
-  }).join('');
+  const anyFilterActive = !!(q || processingCategoryFilter || processingStatusFilter || processingDateFilter);
 
-  return filterCard + scanPanel + (rows || (!analyserScanResult ? `<div class="card empty"><div class="big">🔬</div>${q||processingCategoryFilter||processingStatusFilter||processingDateFilter?'No matching specimen.':'Nothing here yet.'}</div>` : ''));
+  let rows = '';
+  if(anyFilterActive){
+    rows = orders.map(o=>{
+      const p = o.patient;
+      if(q){
+        const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
+        const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+        if(!matchOrder) return '';
+      }
+      // Only ever show specimens that have been accepted into this facility — a specimen still
+      // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
+      let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing','interfaced','completed'].includes(t.status)));
+      if(processingCategoryFilter) specimens = specimens.filter(s=>s.category===processingCategoryFilter);
+      if(processingStatusFilter){
+        const group = PROCESSING_STATUS_GROUPS[processingStatusFilter];
+        specimens = specimens.filter(s=>{
+          const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+          return stests.some(t=>group.testStatuses.includes(t.status));
+        });
+      }
+      // Date always means "collected on" — a specimen's collection date never changes, regardless
+      // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
+      if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
+      if(!specimens.length) return '';
+      return `<div class="order-card">
+        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
+        ${specimens.map(s=>{
+          const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+          return `<div class="test-row" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
+            <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
+            <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('');
+  }
+
+  const emptyState = analyserScanResult ? '' : (anyFilterActive
+    ? `<div class="card empty"><div class="big">🔬</div>No matching specimen.</div>`
+    : `<div class="card empty"><div class="big">🔎</div>Set a Search, Category, Status, or Collected Date above to browse specimens.</div>`);
+
+  return filterCard + scanPanel + (rows || emptyState);
 }
 // Pressing Enter in Search acts like a scan: if it narrows to exactly one specimen, jump straight
 // into it — same ergonomics as scanning a barcode, without a separate dedicated field for it.
@@ -1388,7 +1394,7 @@ function renderSpecimenScanPanel(s){
     <div class="actions-row" style="margin-top:10px;">
       ${anyReceived? `<button class="btn btn-sm" onclick="loadSpecimenToAnalyser('${s.specimenNumber}')">Load Sample to Analyser</button>`:''}
     </div>
-    ${s.tests.map(t=>renderProcessingTestRow({id:s.orderId}, t)).join('')}
+    ${s.tests.map(t=>renderProcessingTestRow(s, t)).join('')}
   </div>`;
 }
 async function loadSpecimenToAnalyser(specimenNumber){
@@ -1398,15 +1404,41 @@ async function loadSpecimenToAnalyser(specimenNumber){
     showToast('Specimen barcode read at the analyser — test orders transmitted from the LIS.');
   });
 }
-function renderProcessingTestRow(o, t){
-  const meta = STATUS_META[t.status] || {label:t.status, cls:'pill-grey'};
+// Handles all four post-acceptance stages in one place — Received (manual/culture entry),
+// Processing (submit from analyser), Interfaced (certify), Certified (read-only) — absorbing what
+// used to be a separate Result Entry & Validation tab.
+function renderProcessingTestRow(s, t){
+  const meta = STATUS_META[t.visibleStatus||t.status] || {label:t.status, cls:'pill-grey'};
+  const tc = test(t.code);
+  const orderId = s.orderId;
   let body = `<span class="pill ${meta.cls}">${meta.label}</span>`;
-  if(t.status==='processing'){
-    const tc = test(t.code);
-    body += ` <input class="result-input" id="val_${o.id}_${t.code}" placeholder="value">
-    <input class="result-input" id="unit_${o.id}_${t.code}" placeholder="unit" value="${escapeHtml(tc?.units||'')}" style="width:76px;">
-    <button class="btn btn-sm btn-outline" onclick="submitAnalyserResult('${o.id}','${t.code}')">Submit from Analyser</button>`;
+
+  if(t.status==='received'){
+    if(tc?.isCulture){
+      body = `<span class="pill ${meta.cls}">${meta.label}</span> <button class="btn btn-sm" onclick="openCultureResultModal('${orderId}','${t.code}')">Enter Culture Result</button>`;
+    }else{
+      const range = (tc && s.patient) ? matchRange(tc, s.patient) : null;
+      const rangeHint = range ? `<div class="muted" style="font-size:11px;">Expected: ${range.low} – ${range.high} ${tc.units||''}</div>` : '';
+      body = `<span class="pill ${meta.cls}">${meta.label}</span>
+        <input class="result-input" id="mval_${orderId}_${t.code}" placeholder="value">
+        <button class="btn btn-sm btn-outline" onclick="enterManualResult('${orderId}','${t.code}')">Save Result</button>${rangeHint}`;
+    }
+  }else if(t.status==='processing'){
+    body += ` <input class="result-input" id="val_${orderId}_${t.code}" placeholder="value">
+    <input class="result-input" id="unit_${orderId}_${t.code}" placeholder="unit" value="${escapeHtml(tc?.units||'')}" style="width:76px;">
+    <button class="btn btn-sm btn-outline" onclick="submitAnalyserResult('${orderId}','${t.code}')">Submit from Analyser</button>`;
+  }else if(t.status==='interfaced'){
+    const info = (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
+    body = `<span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
+      ${hasCapability('certify')
+        ? `<button class="btn btn-sm" onclick="certifyResult('${orderId}','${t.code}')">Validate & Certify</button>`
+        : `<span class="muted" style="font-size:11.5px;">Only a Pathologist or Lab Manager can certify</span>`}`;
+  }else if(t.status==='completed'){
+    const info = (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
+    body = `<span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
+      <span class="muted" style="font-size:11px;">Certified by ${escapeHtml(t.validatedBy||'')}</span>`;
   }
+
   return `<div class="test-row"><div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div></div><div>${body}</div></div>`;
 }
 async function submitAnalyserResult(orderId, code){
@@ -1415,80 +1447,18 @@ async function submitAnalyserResult(orderId, code){
   if(val===''){ showToast('Enter a result value.'); return; }
   await withErrorToast(async ()=>{
     await api.analyserResult(orderId, code, val, unit);
+    analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
     await render();
     showToast(`Result received from the analyser for ${code} — unit matched, sample now Interfaced.`);
   });
 }
 
-function renderValidationTab(orders, f){
-  const q = worklistSearch.trim().toLowerCase();
-  let rows = [];
-  orders.forEach(o=>{
-    const p = o.patient;
-    if(q){
-      const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
-      const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
-      if(!matchOrder) return;
-    }
-    o.tests.forEach(t=>{ if(t.performingFacilityId===f.id && (t.status==='received'||t.status==='interfaced')) rows.push({o,t,p}); });
-  });
-  const received = rows.filter(r=>r.t.status==='received');
-  const interfaced = rows.filter(r=>r.t.status==='interfaced');
-  const active = validationFilter==='received' ? received : interfaced;
-
-  const searchHtml = `<div class="card">
-    <div class="grid grid-2">
-      <div class="field" style="margin-bottom:0;"><label>Search by Patient, Hospital No., ID No., or Specimen No.</label>
-        <input id="valSearch" value="${escapeHtml(worklistSearch)}" placeholder="Type or paste…"
-          oninput="worklistSearch=this.value;render();const el=document.getElementById('valSearch');if(el)el.focus();"></div>
-      <div class="field" style="margin-bottom:0;"><label>Filter</label>
-        <select onchange="validationFilter=this.value;render();">
-          <option value="received" ${validationFilter==='received'?'selected':''}>Received — manual entry (${received.length})</option>
-          <option value="interfaced" ${validationFilter==='interfaced'?'selected':''}>Interfaced — awaiting validation (${interfaced.length})</option>
-        </select>
-      </div>
-    </div>
-  </div>`;
-  if(!active.length) return searchHtml + `<div class="card empty"><div class="big">🧫</div>Nothing in this queue right now.</div>`;
-
-  const list = active.map(({o,t,p})=>{
-    const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
-    const rowId = spec ? spec.specimenNumber : o.memoNumber;
-    if(t.status==='received'){
-      const tc = test(t.code);
-      const range = (tc && !tc.isCulture) ? matchRange(tc, p) : null;
-      const rangeHint = range ? `<div class="muted" style="font-size:11px;">Expected: ${range.low} – ${range.high} ${tc.units||''}</div>` : '';
-      const entryHtml = tc?.isCulture
-        ? `<button class="btn btn-sm" onclick="openCultureResultModal('${o.id}','${t.code}')">Enter Culture Result</button>`
-        : `<input class="result-input" id="mval_${o.id}_${t.code}" placeholder="value"> <button class="btn btn-sm btn-outline" onclick="enterManualResult('${o.id}','${t.code}')">Save Result</button>${rangeHint}`;
-      return `<div class="order-card">
-        <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
-        <div class="test-row">
-          <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">${tc?.isCulture?'Culture & sensitivity':'Manual entry — unit fixed to catalog default ('+escapeHtml(tc?.units||'')+')'}</div></div>
-          <div>${entryHtml}</div>
-        </div>
-      </div>`;
-    }
-    const tc = test(t.code);
-    const info = evalResult(tc, p, t.value);
-    return `<div class="order-card">
-      <div class="order-card-head"><div><span class="order-id">${escapeHtml(rowId)}</span> — ${escapeHtml(p?.name||'?')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
-      <div class="test-row">
-        <div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div><div class="test-meta">Entered by ${escapeHtml(t.enteredBy||'—')}, ${fmtDate(t.enteredAt)}</div></div>
-        <div><span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
-        ${hasCapability('certify')
-          ? `<button class="btn btn-sm" onclick="certifyResult('${o.id}','${t.code}')">Validate & Certify</button>`
-          : `<span class="muted" style="font-size:11.5px;">Only a Pathologist or Lab Manager can certify</span>`}</div>
-      </div>
-    </div>`;
-  }).join('');
-  return searchHtml + list;
-}
 async function enterManualResult(orderId, code){
   const val = (document.getElementById(`mval_${orderId}_${code}`).value||'').trim();
   if(val===''){ showToast('Enter a value first.'); return; }
   await withErrorToast(async ()=>{
     await api.manualResult(orderId, code, val);
+    if(analyserScanResult) analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
     await render();
   });
 }
@@ -1608,6 +1578,7 @@ async function certifyResult(orderId, code){
         throw e;
       }
     }
+    if(analyserScanResult) analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
     await render();
     showToast(`Result certified by ${session.user.name} — status now Completed.`);
     if(result.reflexSuggestions && result.reflexSuggestions.length){
