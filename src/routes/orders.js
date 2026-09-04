@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
 
   const orders = await prisma.order.findMany({
     where: { OR: [{ orderingFacilityId: fid }, { tests: { some: { performingFacilityId: fid } } }] },
-    include: { tests: true, patient: true, specimens: true },
+    include: { tests: true, patient: true, specimens: true, ward: true },
     orderBy: { createdAt: 'desc' },
   });
 
@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
-  const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { tests: true, patient: true, specimens: true } });
+  const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
   const mapped = mapOrderForViewer(order, req.user.facilityId);
   if (!mapped.viewerIsOrigin && mapped.tests.length === 0) {
@@ -73,7 +73,7 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
   const { memoNumber } = req.body || {};
   if (!memoNumber) return res.status(400).json({ error: 'memoNumber is required' });
 
-  const existing = await prisma.order.findUnique({ where: { memoNumber }, include: { tests: true, patient: true, specimens: true } });
+  const existing = await prisma.order.findUnique({ where: { memoNumber }, include: { tests: true, patient: true, specimens: true, ward: true } });
   if (existing) {
     return res.json(mapOrderForViewer(existing, req.user.facilityId));
   }
@@ -122,7 +122,7 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
         }),
       },
     },
-    include: { tests: true, patient: true, specimens: true },
+    include: { tests: true, patient: true, specimens: true, ward: true },
   });
   await logAudit(req.user, { action: 'memo_imported', entityType: 'Order', entityId: order.id, details: `Fetched memo ${memo.memoNumber} for ${memo.patientName}` });
   res.status(201).json(mapOrderForViewer(order, req.user.facilityId));
@@ -143,13 +143,23 @@ router.delete('/:id', requireCapability('collect'), async (req, res) => {
 // ---------- 2. Sample Collection (select tests, generate one barcode per specimen bottle) ----------
 router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
-  const { selectedCodes } = req.body || {};
+  const { selectedCodes, patientType, wardId, statMode } = req.body || {};
   const collectedBy = req.user.name; // the logged-in technologist collecting — not client-supplied
 
   const order = await prisma.order.findUnique({ where: { id }, include: { tests: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
   if (order.sampleStatus) return res.status(409).json({ error: 'Already collected' });
+
+  if (patientType && !['inpatient', 'outpatient'].includes(patientType)) {
+    return res.status(400).json({ error: 'patientType must be inpatient or outpatient' });
+  }
+  let finalWardId = null;
+  if (patientType === 'inpatient' && wardId) {
+    const ward = await prisma.ward.findUnique({ where: { id: wardId } });
+    if (!ward || ward.facilityId !== req.user.facilityId) return res.status(400).json({ error: 'Invalid ward for this facility' });
+    finalWardId = wardId;
+  }
 
   const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId } });
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: order.tests.map(t => t.code) } } });
@@ -161,7 +171,7 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
 
   await prisma.order.update({
     where: { id },
-    data: { sampleStatus: 'collected', collectedAt: new Date(), collectedBy },
+    data: { sampleStatus: 'collected', collectedAt: new Date(), collectedBy, patientType: patientType || null, wardId: finalWardId },
   });
 
   const selected = new Set(selectedCodes || []);
@@ -198,11 +208,15 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
     await Promise.all(tests.map(t => {
       const tc = catalogTests.find(c => c.code === t.code);
       const needsRef = tc ? needsReferral(tc, facility) : false;
+      // STAT is a request, not a right — it only actually applies if the catalog itself marks
+      // this specific test as STAT-eligible. A blanket "mark this sample STAT" click never makes
+      // a routine test urgent just because someone asked.
+      const isStat = !!(statMode && tc && tc.isStat);
       // Higher-level tests go straight to "ready to refer" here at collection — referral is
       // assigned and sent from Sample Collection, not later. Local tests await acceptance as usual.
       return prisma.orderTest.update({
         where: { id: t.id },
-        data: { status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id },
+        data: { status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id, isStat },
       });
     }));
   }
@@ -212,7 +226,7 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
     prisma.orderTest.update({ where: { id: t.id }, data: { status: 'deselected' } })
   ));
 
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   await logAudit(req.user, { action: 'collect', entityType: 'Order', entityId: id, details: `Collected memo ${order.memoNumber} — ${full.specimens.length} specimen(s)` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
@@ -279,7 +293,7 @@ router.post('/:id/recollect', requireCapability('collect'), async (req, res) => 
     }));
   }
 
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   await logAudit(req.user, { action: 'recollect', entityType: 'Order', entityId: id, details: `Recollected rejected test(s) for memo ${order.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
@@ -314,7 +328,7 @@ router.post('/:id/refer', requireCapability('collect'), async (req, res) => {
   // never entered 'collected' locally — nothing further to do at the order level.
   await prisma.order.update({ where: { id }, data: { referredAt: new Date(), referredByName } });
 
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   await logAudit(req.user, { action: 'refer', entityType: 'Order', entityId: id, details: `Referred memo ${order.memoNumber} to ${Array.from(targetNames).join(' & ')}` });
   res.json({ order: mapOrderForViewer(full, req.user.facilityId), referredTo: Array.from(targetNames) });
 });
@@ -328,7 +342,7 @@ router.post('/:id/receive-referral', requireCapability('process'), async (req, r
     where: { orderId: id, referred: true, performingFacilityId: req.user.facilityId, status: 'awaiting_receipt' },
     data: { status: 'received' },
   });
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   if (!full) return res.status(404).json({ error: 'Not found' });
   await logAudit(req.user, { action: 'receive_referral', entityType: 'Order', entityId: id, details: `Received referred sample for memo ${full.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));

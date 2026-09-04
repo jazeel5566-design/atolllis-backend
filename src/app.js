@@ -23,6 +23,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/facility-networks', require('./routes/facility-networks'));
 app.use('/api/role-capabilities', require('./routes/role-capabilities'));
 app.use('/api/audit', require('./routes/audit'));
+app.use('/api/wards', require('./routes/wards'));
 app.use('/api/test-aliases', require('./routes/test-aliases'));
 app.use('/api/test-panels', require('./routes/test-panels'));
 app.use('/api/reflex-rules', require('./routes/reflex-rules'));

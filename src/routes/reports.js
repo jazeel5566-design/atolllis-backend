@@ -8,7 +8,7 @@ router.use(requireAuth);
 router.get('/:orderId', async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.orderId },
-    include: { tests: true, patient: true, orderingFacility: true, specimens: true },
+    include: { tests: true, patient: true, orderingFacility: true, specimens: true, ward: true },
   });
   if (!order) return res.status(404).json({ error: 'Not found' });
 
@@ -29,7 +29,7 @@ router.get('/:orderId', async (req, res) => {
     const specimen = order.specimens.find(s => s.id === t.specimenId);
     const specimenNumber = specimen ? specimen.specimenNumber : null;
     if (t.status !== 'completed') {
-      return { code: t.code, name: t.name, status: t.status, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber };
+      return { code: t.code, name: t.name, status: t.status, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
     }
     if (tc && tc.isCulture) {
       const cultureResult = await prisma.cultureResult.findUnique({
@@ -38,7 +38,7 @@ router.get('/:orderId', async (req, res) => {
       });
       return {
         code: t.code, name: t.name, isCulture: true, cultureResult,
-        performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber,
+        performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
         validatedBy: t.validatedBy, validatedAt: t.validatedAt,
       };
     }
@@ -46,7 +46,7 @@ router.get('/:orderId', async (req, res) => {
     return {
       code: t.code, name: t.name, method: tc ? tc.method : null, value: t.value, unit: t.unit,
       ...info,
-      performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber,
+      performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
       validatedBy: t.validatedBy, validatedAt: t.validatedAt, comment: tc ? tc.comment : null,
       criticalNotifiedTo: t.criticalNotifiedTo, criticalNotifiedAt: t.criticalNotifiedAt,
     };
@@ -56,6 +56,8 @@ router.get('/:orderId', async (req, res) => {
     order: { id: order.id, memoNumber: order.memoNumber, createdAt: order.createdAt, orderedBy: order.orderedBy },
     facility: { name: order.orderingFacility.name },
     patient: order.patient,
+    patientType: order.patientType,
+    wardName: order.ward ? order.ward.name : null,
     specimens: order.specimens.map(s => ({ specimenNumber: s.specimenNumber, bottleType: s.bottleType })),
     lines,
   });

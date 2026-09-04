@@ -13,7 +13,7 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', requireCapability('manage_catalog'), async (req, res) => {
-  const { code, name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, refRanges } = req.body || {};
+  const { code, name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, isCulture, isStat, refRanges } = req.body || {};
   if (!code || !name) return res.status(400).json({ error: 'code and name are required' });
   const exists = await prisma.testDefinition.findUnique({ where: { code: code.toUpperCase() } });
   if (exists) return res.status(409).json({ error: `Test code ${code} already exists` });
@@ -29,6 +29,8 @@ router.post('/', requireCapability('manage_catalog'), async (req, res) => {
       criticalLow: criticalLow ?? null,
       criticalHigh: criticalHigh ?? null,
       comment: comment || '',
+      isCulture: !!isCulture,
+      isStat: !!isStat,
       refRanges: { create: (refRanges || []).map(r => ({ sex: r.sex, ageMin: r.ageMin, ageMax: r.ageMax, low: r.low, high: r.high })) },
     },
     include: { refRanges: true },
@@ -38,7 +40,7 @@ router.post('/', requireCapability('manage_catalog'), async (req, res) => {
 
 router.put('/:code', requireCapability('manage_catalog'), async (req, res) => {
   const { code } = req.params;
-  const { name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, refRanges } = req.body || {};
+  const { name, category, specimenType, method, units, tat, minTier, criticalLow, criticalHigh, comment, isCulture, isStat, refRanges } = req.body || {};
   const exists = await prisma.testDefinition.findUnique({ where: { code } });
   if (!exists) return res.status(404).json({ error: 'Not found' });
 
@@ -50,6 +52,8 @@ router.put('/:code', requireCapability('manage_catalog'), async (req, res) => {
       criticalLow: criticalLow ?? null,
       criticalHigh: criticalHigh ?? null,
       comment,
+      isCulture: !!isCulture,
+      isStat: !!isStat,
       refRanges: { create: (refRanges || []).map(r => ({ sex: r.sex, ageMin: r.ageMin, ageMax: r.ageMax, low: r.low, high: r.high })) },
     },
     include: { refRanges: true },

@@ -270,6 +270,7 @@ let catalogCache = [];
 let categoriesCache = [];
 let organismsCache = [];
 let antibioticsCache = [];
+let wardsCache = [];
 let state = { activeView: 'dashboard' };
 
 /* ============================= API CLIENT ============================= */
@@ -326,7 +327,10 @@ const api = {
   orders: (stage) => apiRequest(`/orders${stage?('?stage='+stage):''}`),
   order: (id) => apiRequest(`/orders/${id}`),
   cancelMemo: (id) => apiRequest(`/orders/${id}`, {method:'DELETE'}),
-  collect: (id, selectedCodes) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes}}),
+  collect: (id, selectedCodes, extra) => apiRequest(`/orders/${id}/collect`, {method:'POST', body:{selectedCodes, ...(extra||{})}}),
+  wards: (facilityId) => apiRequest(`/wards${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
+  createWard: (name, facilityId) => apiRequest('/wards', {method:'POST', body:{name, facilityId}}),
+  deleteWard: (id) => apiRequest(`/wards/${id}`, {method:'DELETE'}),
   recollect: (id, testCodes) => apiRequest(`/orders/${id}/recollect`, {method:'POST', body:{testCodes}}),
   refer: (id) => apiRequest(`/orders/${id}/refer`, {method:'POST'}),
   receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
@@ -681,6 +685,7 @@ async function viewCollectionPage(){
     let order;
     try{ order = await api.order(collectionOpenOrderId); collectionOpenOrder = order; }
     catch(e){ collectionOpenOrderId=null; collectionOpenOrder=null; showToast(e.message); return header + await renderCollectionQueue(f); }
+    if(!order.sampleStatus && !wardsCache.length){ try{ wardsCache = await api.wards(); }catch(e){ wardsCache = []; } }
     return header + renderCollectionPanel(order, f);
   }
 
@@ -762,7 +767,23 @@ function renderCollectionPanel(o, f){
 
   if(!o.sampleStatus){
     // Not yet collected — selectable table, Collect Sample generates the barcodes.
+    const statEligibleSelected = o.tests.filter(t=>test(t.code)?.isStat);
     return `<div class="card">${header}
+      <div class="grid grid-2" style="margin-top:14px;">
+        <div class="field" style="margin-bottom:0;"><label>Patient Type</label>
+          <select id="f_patientType" onchange="document.getElementById('wardFieldWrap').style.display=this.value==='inpatient'?'block':'none';">
+            <option value="outpatient">Out-Patient</option>
+            <option value="inpatient">In-Patient</option>
+          </select></div>
+        <div class="field" id="wardFieldWrap" style="margin-bottom:0;display:none;"><label>Ward</label>
+          <select id="f_ward">${wardsCache.map(w=>`<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('') || '<option value="">— no wards set up yet, see Settings —</option>'}</select></div>
+      </div>
+      ${statEligibleSelected.length? `<div class="field" style="margin-top:10px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+          <input type="checkbox" id="f_statMode"> Mark as STAT
+        </label>
+        <p class="muted" style="font-size:11px;margin-top:2px;">Only applies to test(s) already marked STAT-eligible in the Test Catalog: ${statEligibleSelected.map(t=>escapeHtml(t.name)).join(', ')}. Other tests on this memo stay routine priority even if checked.</p>
+      </div>`:''}
       <div class="field" style="margin-top:14px;">
         <label>Tests — selected by default; deselect any not being collected now</label>
         <div class="actions-row" style="margin-bottom:8px;">
@@ -779,7 +800,7 @@ function renderCollectionPanel(o, f){
                 return `<tr>
                   <td><input type="checkbox" name="collectTest" value="${t.code}" checked></td>
                   <td class="mono">${t.code}</td>
-                  <td>${escapeHtml(t.name)}${ref? `<div class="muted" style="font-size:11px;">Requires referral</div>`:''}</td>
+                  <td>${escapeHtml(t.name)}${ref? `<div class="muted" style="font-size:11px;">Requires referral</div>`:''}${tc?.isStat? ` <span class="pill pill-crimson" style="font-size:10px;">STAT-eligible</span>`:''}</td>
                   <td>${escapeHtml(tc?.category||'—')}</td>
                   <td>${escapeHtml(tc?.specimenType||'—')}</td>
                 </tr>`;
@@ -971,7 +992,13 @@ function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+
 function openPrintDialog(){
   const selected = Array.from(document.querySelectorAll('input[name="collectTest"]:checked')).map(el=>el.value);
   if(!selected.length && !confirm('No tests selected — collect an empty sample anyway?')) return;
+  const patientType = document.getElementById('f_patientType')?.value || 'outpatient';
+  const wardEl = document.getElementById('f_ward');
+  const wardId = (patientType==='inpatient' && wardEl) ? wardEl.value : null;
+  if(patientType==='inpatient' && !wardId){ showToast('Select a ward for an in-patient.'); return; }
+  const statMode = document.getElementById('f_statMode')?.checked || false;
   buildPendingCollect(selected, 'collect');
+  pendingCollect.extra = { patientType, wardId, statMode };
   if(!Object.keys(pendingCollect.groups).length){ confirmCollectAndPrint(); return; } // nothing selected — skip straight to collect
   renderPrintDialog();
 }
@@ -1036,7 +1063,7 @@ async function confirmCollectAndPrint(){
   });
   await withErrorToast(async ()=>{
     const usesRecollectEndpoint = mode==='recollect' || mode==='collect_added';
-    const order = usesRecollectEndpoint ? await api.recollect(orderId, selectedCodes) : await api.collect(orderId, selectedCodes);
+    const order = usesRecollectEndpoint ? await api.recollect(orderId, selectedCodes) : await api.collect(orderId, selectedCodes, pendingCollect.extra);
     collectionOpenOrderId = null; collectionOpenOrder = null;
     await render();
     printLabelsForOrder(order, groups, quantities);
@@ -1277,7 +1304,7 @@ async function viewProcessingPage(){
   return `
     <div class="pagehead"><h1>Result Processing</h1><p>Analyser interface and validation for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
-      <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';render();">Analyser Processing (${analyserQ.length})</div>
+      <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';processingPatientTypeFilter='';processingStatOnly=false;render();">Analyser Processing (${analyserQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
     </div>
     ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
@@ -1287,6 +1314,8 @@ async function viewProcessingPage(){
 let processingCategoryFilter = '';
 let processingStatusFilter = '';
 let processingDateFilter = '';
+let processingPatientTypeFilter = '';
+let processingStatOnly = false;
 const PROCESSING_STATUS_GROUPS = {
   received: { label: 'Received', testStatuses: ['received'] },
   processing: { label: 'Loaded to Analyser', testStatuses: ['processing'] },
@@ -1313,12 +1342,25 @@ function renderProcessingTab(orders, f){
       <div class="field" style="margin-bottom:0;"><label>Collected Date</label>
         <input type="date" value="${processingDateFilter}" onchange="processingDateFilter=this.value;render();"></div>
     </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+    <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:center;">
+      <div style="display:flex;gap:14px;align-items:center;">
+        <span class="muted" style="font-size:12.5px;font-weight:600;">Patient Type:</span>
+        ${['','outpatient','inpatient'].map(v=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
+          <input type="radio" name="procPatientType" value="${v}" ${processingPatientTypeFilter===v?'checked':''} onchange="processingPatientTypeFilter='${v}';render();">
+          ${v===''?'All':v==='inpatient'?'In-Patient':'Out-Patient'}
+        </label>`).join('')}
+      </div>
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600;">
+        <input type="checkbox" ${processingStatOnly?'checked':''} onchange="processingStatOnly=this.checked;render();"> STAT only
+      </label>
+    </div>
   </div>`;
 
   const scanPanel = analyserScanResult ? renderSpecimenScanPanel(analyserScanResult) : '';
 
   const q = worklistSearch.trim().toLowerCase();
-  const anyFilterActive = !!(q || processingCategoryFilter || processingStatusFilter || processingDateFilter);
+  const anyFilterActive = !!(q || processingCategoryFilter || processingStatusFilter || processingDateFilter || processingPatientTypeFilter || processingStatOnly);
 
   let rows = '';
   if(anyFilterActive){
@@ -1329,6 +1371,7 @@ function renderProcessingTab(orders, f){
         const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
         if(!matchOrder) return '';
       }
+      if(processingPatientTypeFilter && o.patientType!==processingPatientTypeFilter) return '';
       // Only ever show specimens that have been accepted into this facility — a specimen still
       // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
       let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing','interfaced','completed'].includes(t.status)));
@@ -1340,16 +1383,20 @@ function renderProcessingTab(orders, f){
           return stests.some(t=>group.testStatuses.includes(t.status));
         });
       }
+      if(processingStatOnly){
+        specimens = specimens.filter(s=>o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && t.isStat));
+      }
       // Date always means "collected on" — a specimen's collection date never changes, regardless
       // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
       if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
       if(!specimens.length) return '';
       return `<div class="order-card">
-        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span></div></div>
+        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>${o.patientType? ` <span class="pill pill-grey" style="font-size:10px;">${o.patientType==='inpatient'?'In-Patient'+(o.wardName?' · '+escapeHtml(o.wardName):''):'Out-Patient'}</span>`:''}</div></div>
         ${specimens.map(s=>{
           const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+          const anyStat = stests.some(t=>t.isStat);
           return `<div class="test-row" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
-            <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
+            <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span>${anyStat? ` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</div>
             <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
           </div>`;
         }).join('')}
@@ -1359,7 +1406,7 @@ function renderProcessingTab(orders, f){
 
   const emptyState = analyserScanResult ? '' : (anyFilterActive
     ? `<div class="card empty"><div class="big">🔬</div>No matching specimen.</div>`
-    : `<div class="card empty"><div class="big">🔎</div>Set a Search, Category, Status, or Collected Date above to browse specimens.</div>`);
+    : `<div class="card empty"><div class="big">🔎</div>Set a filter above to browse specimens.</div>`);
 
   return filterCard + scanPanel + (rows || emptyState);
 }
@@ -1718,10 +1765,10 @@ async function renderReportSheet(orderId){
   let report;
   try{ report = await api.report(orderId); }
   catch(e){ return `<div class="card" style="color:var(--crimson);">${escapeHtml(e.message)}</div>`; }
-  const { order, facility, patient, lines } = report;
+  const { order, facility, patient, patientType, wardName, lines } = report;
   const rows = lines.map(l=>{
     if(l.status){
-      return `<tr><td>${escapeHtml(l.name)}</td><td class="mono">${l.code}</td><td>${escapeHtml(test(l.code)?.method||'')}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}${l.referred?` — at ${escapeHtml(l.performingFacility||'')}`:''}</td></tr>`;
+      return `<tr><td>${escapeHtml(l.name)}${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</td><td class="mono">${l.code}</td><td>${escapeHtml(test(l.code)?.method||'')}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}${l.referred?` — at ${escapeHtml(l.performingFacility||'')}`:''}</td></tr>`;
     }
     if(l.isCulture){
       const cr = l.cultureResult;
@@ -1731,7 +1778,7 @@ async function renderReportSheet(orderId){
         return `<div style="margin-top:4px;"><b>${escapeHtml(o.organism.name)}</b>${o.colonyCount?` — ${escapeHtml(o.colonyCount)}`:''}<div style="font-size:11px;margin-top:2px;">${sensRows||'<span class="muted">No sensitivity data recorded.</span>'}</div></div>`;
       }).join('');
       return `<tr>
-        <td colspan="3"><b>${escapeHtml(l.name)}</b> <span class="mono muted">(${l.code})</span></td>
+        <td colspan="3"><b>${escapeHtml(l.name)}</b> <span class="mono muted">(${l.code})</span>${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</td>
         <td colspan="2">
           <div><b>${growthLabel}</b></div>
           ${organismsHtml}
@@ -1740,7 +1787,7 @@ async function renderReportSheet(orderId){
       </tr>`;
     }
     return `<tr>
-      <td>${escapeHtml(l.name)}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
+      <td>${escapeHtml(l.name)}${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
       <td class="mono">${l.code}</td>
       <td>${escapeHtml(l.method||'')}</td>
       <td class="mono flag-${(l.flag||'').replace(' ','')}">${l.value} ${l.unit||''} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</td>
@@ -1760,6 +1807,7 @@ async function renderReportSheet(orderId){
         <div><span>DOB / Age / Sex: </span>${patient.dob} / ${calcAge(patient.dob)}y / ${patient.sex}</div>
         <div><span>Address: </span>${escapeHtml(patient.address||'—')}</div>
         <div><span>Ordering Clinician: </span>${escapeHtml(order.orderedBy)}</div>
+        <div><span>Patient Type: </span>${patientType==='inpatient'? `In-Patient${wardName?' — '+escapeHtml(wardName):''}` : patientType==='outpatient'? 'Out-Patient' : '—'}</div>
         <div><span>Memo: </span>${escapeHtml(order.memoNumber)}</div>
         <div style="grid-column:1/-1;"><span>Specimens: </span>${(report.specimens||[]).map(s=>`<span class="mono">${escapeHtml(s.specimenNumber)}</span> (${escapeHtml(s.bottleType)})`).join(', ')||'—'}</div>
       </div>
@@ -1797,14 +1845,15 @@ async function searchHistory(){
     const entries = orders.map(o=>{
       const rows = o.tests.map(t=>{
         if(t.status){
-          return `<div class="test-row"><span>${escapeHtml(t.name)}</span><span class="pill ${(STATUS_META[t.status]||{cls:'pill-grey'}).cls}">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
+          return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</span><span class="pill ${(STATUS_META[t.status]||{cls:'pill-grey'}).cls}">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
         }
-        return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
+        return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''} <span class="mono muted">(${t.code})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
           <span class="mono flag-${(t.flag||'').replace(' ','')}">${t.value} ${t.unit||''} ${t.flag && t.flag!=='Normal' && t.flag!=='N/A'?`— ${t.flagLabel}`:''}</span></div>
           <div class="muted" style="font-size:11px;margin:-4px 0 6px;">Ref: ${t.rangeText||''} · Certified by ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>`;
       }).join('');
+      const visitType = o.patientType==='inpatient'? `In-Patient${o.wardName?' · '+escapeHtml(o.wardName):''}` : o.patientType==='outpatient'? 'Out-Patient' : null;
       return `<div class="order-card">
-        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber||o.orderId)}</span> <span class="muted">— ${o.own? `ordered here, ${fmtDate(o.createdAt)}` : `referred in, ${fmtDate(o.createdAt)}`}</span></div>
+        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber||o.orderId)}</span> <span class="muted">— ${o.own? `ordered here, ${fmtDate(o.createdAt)}` : `referred in, ${fmtDate(o.createdAt)}`}${visitType?` · ${visitType}`:''}</span></div>
         ${!o.own? `<span class="pill pill-purple">Referred tests only</span>`:''}</div>
         ${rows}
       </div>`;
@@ -1823,6 +1872,7 @@ let aliasSearch = '';
 let organismSearch = '';
 let antibioticSearch = '';
 let usersFacilityFilter = null;
+let wardsFacilityFilter = null;
 async function viewSettings(){
   const f = fac(session.user.facilityId);
   return `
@@ -1838,6 +1888,7 @@ async function viewSettings(){
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
+      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='wards'?'active':''}" onclick="settingsTab='wards';render();">Wards</div>`:''}
       ${hasCapability('view_audit')? `<div class="tab ${settingsTab==='audit'?'active':''}" onclick="settingsTab='audit';render();">Audit Log</div>`:''}
       <div class="tab ${settingsTab==='account'?'active':''}" onclick="settingsTab='account';render();">My Account</div>
       ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
@@ -1851,6 +1902,7 @@ async function viewSettings(){
       : settingsTab==='antibiotics'? await viewAntibiotics()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
+      : settingsTab==='wards'? await viewWards()
       : settingsTab==='audit'? await viewAuditLog()
       : settingsTab==='account'? viewMyAccount()
       : settingsTab==='connection'? await viewConnection()
@@ -2138,6 +2190,61 @@ async function deleteUser(userId){
   if(!confirm('Remove this user? This cannot be undone.')) return;
   await withErrorToast(async ()=>{
     await api.deleteUser(userId);
+    await render();
+  });
+}
+
+/* ---------- Wards (facility-scoped, manage_users capability) ---------- */
+async function viewWards(){
+  const isAdmin = session.user.role==='admin';
+  let facilities = [];
+  if(isAdmin) facilities = await api.facilities();
+  const targetFacilityId = isAdmin ? (wardsFacilityFilter || session.user.facilityId) : session.user.facilityId;
+  const wards = await api.wards(isAdmin ? targetFacilityId : undefined);
+  const facilityPicker = isAdmin ? `<div class="field" style="max-width:320px;"><label>Facility</label>
+    <select onchange="wardsFacilityFilter=this.value;render();">
+      ${facilities.map(fc=>`<option value="${fc.id}" ${targetFacilityId===fc.id?'selected':''}>${escapeHtml(fc.name)}</option>`).join('')}
+    </select></div>` : '';
+  const rows = wards.map(w=>`<tr>
+    <td>${escapeHtml(w.name)}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteWard('${w.id}','${targetFacilityId}')">Remove</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+      <div>${facilityPicker}<h1 style="margin-top:8px;">Wards</h1><p>In-patient wards for this facility — selected at Sample Collection when the patient is an in-patient, and shown on the report for that visit.</p></div>
+      <button class="btn" onclick="openWardModal('${targetFacilityId}')">+ New Ward</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Ward</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="2" class="empty">No wards defined yet — a Health Centre with no admissions can simply leave this empty.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openWardModal(facilityId){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-head"><h2>New Ward</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Ward Name</label><input id="ward_name" placeholder="e.g. Medical Ward"></div>
+      <div class="actions-row"><button class="btn" onclick="saveWard('${facilityId}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveWard(facilityId){
+  const name = (document.getElementById('ward_name').value||'').trim();
+  if(!name){ showToast('Enter a ward name.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createWard(name, facilityId);
+    wardsCache = [];
+    closeModal(); await render();
+    showToast('Ward saved.');
+  });
+}
+async function deleteWard(id){
+  if(!confirm('Remove this ward?')) return;
+  await withErrorToast(async ()=>{
+    await api.deleteWard(id);
+    wardsCache = [];
     await render();
   });
 }
@@ -2574,7 +2681,7 @@ function viewCatalog(){
   const rows = filtered.map(t=>`
     <tr>
       <td class="mono">${escapeHtml(t.code)}</td>
-      <td>${escapeHtml(t.name)}<div class="muted" style="font-size:11.5px;">${escapeHtml(t.specimenType||'')}</div></td>
+      <td>${escapeHtml(t.name)}${t.isStat? ` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}<div class="muted" style="font-size:11.5px;">${escapeHtml(t.specimenType||'')}</div></td>
       <td>${escapeHtml(t.category)} <span class="mono muted" style="font-size:11px;">(${escapeHtml((categoriesCache.find(c=>c.name===t.category)||{}).letter||'?')})</span></td>
       <td>${escapeHtml(t.method||'')}</td>
       <td class="mono">${escapeHtml(t.units||'')}</td>
@@ -2657,6 +2764,11 @@ function testModalHtml(isEdit){
         </label>
       </div>
       <div class="field">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="f_isstat" ${t.isStat?'checked':''}> STAT-eligible — can be marked urgent at Sample Collection. Tests not checked here stay routine priority even if a collector tries to mark the sample STAT.
+        </label>
+      </div>
+      <div class="field">
         <label>Reference Ranges</label>
         <div id="rangeTable">${rangeRowsHtml()}</div>
         <button type="button" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="addRangeRow()">+ Add reference range row</button>
@@ -2704,6 +2816,7 @@ async function saveTest(){
     criticalLow: document.getElementById('f_cl').value===''? null : parseFloat(document.getElementById('f_cl').value),
     criticalHigh: document.getElementById('f_ch').value===''? null : parseFloat(document.getElementById('f_ch').value),
     isCulture: document.getElementById('f_isculture').checked,
+    isStat: document.getElementById('f_isstat').checked,
     comment: document.getElementById('f_comment').value,
     refRanges: draftTest.refRanges.filter(r=>r.low!==''&&r.high!==''&&r.low!=null&&r.high!=null),
   };

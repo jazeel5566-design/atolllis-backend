@@ -30,8 +30,24 @@ model Facility {
   performedTests     OrderTest[] @relation("PerformingFacility")
   networks           FacilityNetwork[]
   userAccess         UserFacilityAccess[]
+  wards              Ward[]
 
   createdAt DateTime @default(now())
+}
+
+// A facility's own in-patient ward list (Medical Ward, ICU, Maternity, etc.) — each facility
+// manages its own; a Health Centre with no admissions simply has none. Selected at Sample
+// Collection when the patient is an in-patient, and shown on the report for that visit.
+model Ward {
+  id         String   @id
+  facilityId String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  name       String
+  createdAt  DateTime @default(now())
+
+  orders Order[]
+
+  @@unique([facilityId, name])
 }
 
 // Maps a facility's local network to itself, so a device on that network is recognized
@@ -115,6 +131,7 @@ model TestDefinition {
   criticalHigh Float?
   comment      String?
   isCulture    Boolean @default(false) // true = enters via the structured culture/sensitivity UI, not a plain value
+  isStat       Boolean @default(false) // true = this test can be marked STAT at collection; others can't, even if requested
 
   refRanges ReferenceRange[]
 
@@ -237,6 +254,12 @@ model Order {
   referredAt   DateTime?
   referredByName String?
 
+  // Set at collection — describes THIS visit, not the patient permanently (the same person could
+  // be an in-patient on one visit and an out-patient on the next).
+  patientType String? // 'inpatient' | 'outpatient'
+  wardId      String?
+  ward        Ward?   @relation(fields: [wardId], references: [id])
+
   tests     OrderTest[]
   specimens Specimen[]
 }
@@ -294,6 +317,7 @@ model OrderTest {
   referredByName String?
   criticalNotifiedTo String?   // who was called/told, for a critical (panic) value — required before certify
   criticalNotifiedAt DateTime?
+  isStat             Boolean   @default(false) // set at collect time; only possible if the catalog test itself is STAT-eligible
 
   cultureResult CultureResult?
 }
