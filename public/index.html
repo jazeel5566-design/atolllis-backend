@@ -331,6 +331,9 @@ const api = {
   wards: (facilityId) => apiRequest(`/wards${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
   createWard: (name, facilityId) => apiRequest('/wards', {method:'POST', body:{name, facilityId}}),
   deleteWard: (id) => apiRequest(`/wards/${id}`, {method:'DELETE'}),
+  rejectionReasons: () => apiRequest('/rejection-reasons'),
+  createRejectionReason: (name) => apiRequest('/rejection-reasons', {method:'POST', body:{name}}),
+  deleteRejectionReason: (id) => apiRequest(`/rejection-reasons/${id}`, {method:'DELETE'}),
   recollect: (id, testCodes) => apiRequest(`/orders/${id}/recollect`, {method:'POST', body:{testCodes}}),
   refer: (id) => apiRequest(`/orders/${id}/refer`, {method:'POST'}),
   receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
@@ -1215,7 +1218,9 @@ function renderAcceptanceTab(orders, f){
     if(!specimens.length) return '';
     return `<div class="order-card">
       <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
-        <div class="muted" style="font-size:11.5px;">Collected ${fmtDate(o.collectedAt)} by ${escapeHtml(o.collectedBy||'—')}</div></div></div>
+        <div class="muted" style="font-size:11.5px;">Collected ${fmtDate(o.collectedAt)} by ${escapeHtml(o.collectedBy||'—')}</div></div>
+        ${specimens.length>1 && hasCapability('accept')? `<button class="btn btn-outline btn-sm" onclick="acceptAllSpecimens(${JSON.stringify(specimens.map(s=>s.specimenNumber))})">Accept All (${specimens.length})</button>`:''}
+      </div>
       ${specimens.map(s=>`<div class="test-row" style="cursor:pointer;" onclick="document.getElementById('acceptScanField').value='${s.specimenNumber}';scanSpecimenForAcceptance();">
         <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
         <div><span class="pill pill-amber">Awaiting Acceptance</span></div>
@@ -1281,11 +1286,41 @@ async function acceptSpecimen(specimenNumber){
     showToast('Specimen received into the laboratory.');
   });
 }
-async function rejectSpecimen(specimenNumber){
-  const reason = prompt('Reason for rejection (e.g. haemolysed, insufficient volume, unlabelled):');
-  if(reason===null || !reason.trim()) return;
+async function acceptAllSpecimens(specimenNumbers){
+  if(!confirm(`Accept all ${specimenNumbers.length} specimen(s) on this memo?`)) return;
   await withErrorToast(async ()=>{
-    acceptanceScanResult = await api.rejectSpecimen(specimenNumber, reason);
+    for(const num of specimenNumbers) await api.acceptSpecimen(num);
+    await render();
+    showToast(`${specimenNumbers.length} specimen(s) accepted.`);
+  });
+}
+let rejectModalSpecimenNumber = null;
+async function rejectSpecimen(specimenNumber){
+  rejectModalSpecimenNumber = specimenNumber;
+  let reasons = [];
+  try{ reasons = await api.rejectionReasons(); }catch(e){ /* fall through with empty list */ }
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-head"><h2>Reject Specimen</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Reason</label>
+        <select id="reject_reason" onchange="document.getElementById('reject_other_wrap').style.display=this.value==='__other__'?'block':'none';">
+          ${reasons.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('')}
+          <option value="__other__">Other — specify below</option>
+        </select>
+      </div>
+      <div class="field" id="reject_other_wrap" style="${reasons.length?'display:none;':''}"><label>Specify</label><input id="reject_other" placeholder="e.g. leaking in transit"></div>
+      <div class="actions-row"><button class="btn btn-danger" onclick="confirmRejectSpecimen()">Reject Specimen</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function confirmRejectSpecimen(){
+  const sel = document.getElementById('reject_reason').value;
+  const reason = sel==='__other__' ? (document.getElementById('reject_other').value||'').trim() : sel;
+  if(!reason){ showToast('Enter or select a reason.'); return; }
+  await withErrorToast(async ()=>{
+    acceptanceScanResult = await api.rejectSpecimen(rejectModalSpecimenNumber, reason);
+    closeModal();
     await render();
     showToast('Specimen rejected.');
   });
@@ -1885,6 +1920,7 @@ async function viewSettings(){
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='reflex'?'active':''}" onclick="settingsTab='reflex';render();">Reflex Rules</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='organisms'?'active':''}" onclick="settingsTab='organisms';render();">Organisms</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='antibiotics'?'active':''}" onclick="settingsTab='antibiotics';render();">Antibiotics</div>`:''}
+      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='rejectreasons'?'active':''}" onclick="settingsTab='rejectreasons';render();">Rejection Reasons</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
@@ -1900,6 +1936,7 @@ async function viewSettings(){
       : settingsTab==='reflex'? await viewReflexRules()
       : settingsTab==='organisms'? await viewOrganisms()
       : settingsTab==='antibiotics'? await viewAntibiotics()
+      : settingsTab==='rejectreasons'? await viewRejectionReasons()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
       : settingsTab==='wards'? await viewWards()
@@ -2634,6 +2671,48 @@ async function saveAntibiotic(){
 async function deleteAntibiotic(id){
   if(!confirm('Delete this antibiotic?')) return;
   await withErrorToast(async ()=>{ await api.deleteAntibiotic(id); await render(); });
+}
+
+/* ---------- Rejection Reasons (manage_catalog) — standardized specimen rejection wording ---------- */
+async function viewRejectionReasons(){
+  const reasons = await api.rejectionReasons();
+  const rows = reasons.map(r=>`<tr>
+    <td>${escapeHtml(r.name)}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteRejectionReason('${r.id}')">Delete</button></td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><h1>Rejection Reasons</h1><p>The standard list offered when rejecting a specimen at Sample Acceptance — keeps wording consistent across every facility, and makes rejection patterns reportable.</p></div>
+      <button class="btn" onclick="openRejectionReasonModal()">+ New Reason</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Reason</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="2" class="empty">No reasons defined yet — rejection will fall back to free text until at least one exists.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openRejectionReasonModal(){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-head"><h2>New Rejection Reason</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Reason</label><input id="rr_name" placeholder="e.g. Hemolyzed"></div>
+      <div class="actions-row"><button class="btn" onclick="saveRejectionReason()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveRejectionReason(){
+  const name = (document.getElementById('rr_name').value||'').trim();
+  if(!name){ showToast('Enter a reason.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createRejectionReason(name);
+    closeModal(); await render();
+    showToast('Rejection reason saved.');
+  });
+}
+async function deleteRejectionReason(id){
+  if(!confirm('Delete this reason?')) return;
+  await withErrorToast(async ()=>{ await api.deleteRejectionReason(id); await render(); });
 }
 
 /* ---------- Connection (read-only, Regional admin only) ---------- */

@@ -19,10 +19,18 @@ datasource db {
 model Facility {
   id            String     @id @default(cuid())
   name          String
-  tier          String     // 'health_centre' | 'atoll' | 'regional'
+  tier          String     // 'health_centre' | 'atoll' | 'regional' — CURRENT referral logic keys off this; untouched
   parentAtollId String?
   parentAtoll   Facility?  @relation("AtollChildren", fields: [parentAtollId], references: [id])
   children      Facility[] @relation("AtollChildren")
+
+  // Generic hierarchy for future clusters — a cluster with a different shape (more levels, a
+  // different naming scheme) isn't forced into the regional/atoll/health_centre 3-tier model above.
+  // Additive only: nothing currently reads these two fields.
+  parentFacilityId String?
+  parentFacility   Facility?  @relation("FacilityTree", fields: [parentFacilityId], references: [id])
+  childFacilities  Facility[] @relation("FacilityTree")
+  urlSlug          String?    @unique // reserved for future subdomain-based tenant routing
 
   users              User[]
   patients           Patient[]
@@ -156,6 +164,15 @@ model TestPanel {
   id        String   @id
   name      String   @unique
   testCodes String   // JSON-encoded array of test codes
+  createdAt DateTime @default(now())
+}
+
+// A standardized list of specimen rejection reasons, so rejecting a specimen is a pick from a
+// known list ("Hemolyzed", "Insufficient Volume", ...) rather than free text that varies endlessly
+// between staff — and so rejection patterns can actually be reported on later.
+model RejectionReason {
+  id        String   @id
+  name      String   @unique
   createdAt DateTime @default(now())
 }
 
