@@ -20,33 +20,35 @@
   }
   *{box-sizing:border-box;}
   body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14px;}
-  #app{display:none;min-height:100vh;flex-direction:column;}
+  #app{display:none;min-height:100vh;}
   #app.show{display:flex;}
   .login-screen{display:none;min-height:100vh;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 20%,var(--navy-2),var(--navy));padding:20px;}
   .login-screen.show{display:flex;}
   .login-card{background:#fff;border-radius:16px;padding:32px 28px;width:100%;max-width:380px;box-shadow:0 24px 60px rgba(0,0,0,.35);}
-  .topbar{background:linear-gradient(180deg,var(--navy),var(--navy-2));color:#fff;display:flex;align-items:center;gap:22px;padding:10px 22px;position:sticky;top:0;z-index:50;}
-  .brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
-  .brand .mark{font-family:var(--mono);font-weight:600;font-size:17px;letter-spacing:.5px;white-space:nowrap;}
+  .sidebar{width:236px;background:linear-gradient(180deg,var(--navy),var(--navy-2));color:#fff;flex-shrink:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
+  .brand{padding:20px 18px 14px;border-bottom:1px solid rgba(255,255,255,.12);}
+  .brand .mark{font-family:var(--mono);font-weight:600;font-size:19px;letter-spacing:.5px;}
   .brand .mark span{color:#6FD8C7;}
-  .brand .sub{display:none;}
-  .topbar-main{display:flex;align-items:center;gap:22px;flex:1;min-width:0;}
-  #topbarFacility .facility-name{font-size:12px;font-weight:600;color:#fff;white-space:nowrap;}
-  nav{display:flex;align-items:center;gap:2px;flex:1;min-width:0;overflow-x:auto;}
-  nav button{white-space:nowrap;background:none;border:none;color:#C9D6E8;padding:9px 12px;border-radius:7px 7px 0 0;font-size:13px;font-family:var(--sans);cursor:pointer;display:flex;align-items:center;gap:7px;border-bottom:2px solid transparent;flex-shrink:0;}
-  nav button:hover{background:rgba(255,255,255,.08);color:#fff;}
-  nav button.active{background:rgba(111,216,199,.13);color:#fff;border-bottom:2px solid #6FD8C7;font-weight:500;}
-  nav .navicon{font-size:12px;opacity:.85;}
-  #topbarUser{display:flex;align-items:center;gap:10px;flex-shrink:0;}
-  #topbarUser .user-name{font-size:12px;font-weight:600;color:#fff;white-space:nowrap;}
-  #topbarUser .user-role{font-size:10.5px;color:#9FB0C8;white-space:nowrap;}
-  #topbarUser .btn-logout{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3);white-space:nowrap;padding:7px 12px;}
-  #topbarUser .btn-logout:hover{background:rgba(255,255,255,.08);}
+  .brand .sub{font-size:11px;color:#9FB0C8;margin-top:3px;letter-spacing:.3px;}
+  nav{padding:10px;flex:1;overflow-y:auto;}
+  nav button{width:100%;text-align:left;background:none;border:none;color:#C9D6E8;padding:10px 12px;border-radius:8px;font-size:13.5px;font-family:var(--sans);cursor:pointer;display:flex;align-items:center;gap:9px;margin-bottom:2px;border-left:3px solid transparent;}
+  nav button:hover{background:rgba(255,255,255,.07);color:#fff;}
+  nav button.active{background:rgba(111,216,199,.13);color:#fff;border-left:3px solid #6FD8C7;font-weight:500;}
+  nav .navicon{width:16px;text-align:center;font-size:13px;opacity:.85;}
+  .sidebar-foot{padding:12px 16px 16px;border-top:1px solid rgba(255,255,255,.12);}
+  .sidebar-foot .user-name{font-size:12.5px;font-weight:600;color:#fff;}
+  .sidebar-foot .user-facility{font-size:11px;color:#9FB0C8;margin:2px 0 10px;}
+  .sidebar-foot .btn-logout{width:100%;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3);}
+  .sidebar-foot .btn-logout:hover{background:rgba(255,255,255,.08);}
+  main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:12px 26px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:5;}
+  .facility-switch{display:flex;align-items:center;gap:8px;font-size:13px;}
+  .facility-switch label{color:var(--mute);}
+  .facility-switch select{font-family:var(--sans);font-size:13px;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text);}
   .tier-badge{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
   .tier-health_centre{background:var(--teal-bg);color:var(--teal-dark);}
   .tier-atoll{background:var(--amber-bg);color:var(--amber);}
   .tier-regional{background:var(--purple-bg);color:var(--purple);}
-  main{flex:1;min-width:0;}
   .content{padding:24px 28px 60px;max-width:1180px;width:100%;margin:0 auto;}
   h1{font-size:20px;margin:0 0 4px;font-weight:600;}
   h2{font-size:15px;margin:0 0 12px;font-weight:600;}
@@ -160,20 +162,20 @@
   }
 
   /* ===== Mobile layout ===== */
-  .menu-btn{display:none;background:none;border:1px solid rgba(255,255,255,.3);border-radius:7px;width:36px;height:36px;font-size:16px;color:#fff;cursor:pointer;flex-shrink:0;}
+  .menu-btn{display:none;background:none;border:1px solid var(--border);border-radius:7px;width:36px;height:36px;font-size:16px;color:var(--navy);cursor:pointer;flex-shrink:0;}
   .sidebar-overlay{display:none;}
   @media(max-width:860px){
     body{font-size:14.5px;}
-    .menu-btn{display:inline-flex;align-items:center;justify-content:center;order:3;margin-left:auto;}
-    .topbar-main{position:fixed;top:56px;left:0;right:0;bottom:0;background:linear-gradient(180deg,var(--navy),var(--navy-2));flex-direction:column;align-items:stretch;gap:0;padding:14px;overflow-y:auto;transform:translateY(-8px);opacity:0;visibility:hidden;transition:transform .18s ease,opacity .18s ease,visibility .18s;z-index:60;}
-    .topbar-main.open{transform:translateY(0);opacity:1;visibility:visible;}
-    #topbarFacility{padding:6px 10px 14px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:8px;}
-    nav{flex-direction:column;align-items:stretch;overflow-x:visible;}
-    nav button{border-radius:8px;border-bottom:none;border-left:3px solid transparent;margin-bottom:2px;}
-    nav button.active{border-bottom:none;border-left:3px solid #6FD8C7;}
-    #topbarUser{flex-direction:column;align-items:stretch;margin-top:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.12);}
-    #topbarUser .btn-logout{width:100%;}
+    #app.show{display:block;}
+    .menu-btn{display:inline-flex;align-items:center;justify-content:center;}
+    .sidebar{position:fixed;top:0;left:0;height:100vh;width:250px;max-width:80vw;transform:translateX(-100%);transition:transform .22s ease;z-index:60;box-shadow:0 0 0 rgba(0,0,0,0);}
+    .sidebar.open{transform:translateX(0);box-shadow:12px 0 32px rgba(11,37,69,.25);}
     .sidebar-overlay.open{display:block;position:fixed;inset:0;background:rgba(11,37,69,.45);z-index:55;}
+    main{width:100%;}
+    .topbar{flex-wrap:wrap;gap:10px;padding:10px 14px;position:sticky;}
+    .topbar-row{display:flex;align-items:center;gap:10px;width:100%;}
+    .facility-switch{width:100%;}
+    .facility-switch select{flex:1;min-width:0;}
     .content{padding:16px 14px 50px;}
     .grid-2,.grid-3,.grid-4{grid-template-columns:1fr !important;}
     table{font-size:12.5px;}
@@ -194,19 +196,22 @@
 <body>
 <div class="login-screen" id="loginScreen"></div>
 <div id="app">
-  <header class="topbar" id="topbar">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="mark">Atoll<span>LIS</span></div>
+      <div class="sub">Laboratory Information System</div>
+      <div id="sidebarFacility" style="margin-top:10px;"></div>
     </div>
-    <div class="topbar-main" id="topbarMain">
-      <div id="topbarFacility"></div>
-      <nav id="nav"></nav>
-      <div id="topbarUser"></div>
-    </div>
-    <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
-  </header>
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot" id="sidebarFoot"></div>
+  </aside>
   <main>
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
+      </div>
+    </div>
     <div class="content" id="content"></div>
   </main>
 </div>
@@ -326,9 +331,6 @@ const api = {
   wards: (facilityId) => apiRequest(`/wards${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
   createWard: (name, facilityId) => apiRequest('/wards', {method:'POST', body:{name, facilityId}}),
   deleteWard: (id) => apiRequest(`/wards/${id}`, {method:'DELETE'}),
-  rejectionReasons: () => apiRequest('/rejection-reasons'),
-  createRejectionReason: (name) => apiRequest('/rejection-reasons', {method:'POST', body:{name}}),
-  deleteRejectionReason: (id) => apiRequest(`/rejection-reasons/${id}`, {method:'DELETE'}),
   recollect: (id, testCodes) => apiRequest(`/orders/${id}/recollect`, {method:'POST', body:{testCodes}}),
   refer: (id) => apiRequest(`/orders/${id}/refer`, {method:'POST'}),
   receiveReferral: (id) => apiRequest(`/orders/${id}/receive-referral`, {method:'POST'}),
@@ -538,17 +540,15 @@ function renderShell(){
   navEl.innerHTML = NAV_ITEMS.map(n=>`<button class="${state.activeView===n.id?'active':''}" onclick="goTo('${n.id}')"><span class="navicon">${n.icon}</span>${n.label}</button>`).join('');
 
   const f = fac(session.user.facilityId);
-  document.getElementById('topbarFacility').innerHTML = `<div class="facility-name">${escapeHtml(f.name)}</div><span class="tier-badge ${TIER_CLASS[f.tier]}" style="margin-top:3px;display:inline-block;">${TIER_LABEL[f.tier]||f.tier}</span>`;
+  document.getElementById('sidebarFacility').innerHTML = `<div style="font-size:12.5px;font-weight:600;color:#fff;">${escapeHtml(f.name)}</div><span class="tier-badge ${TIER_CLASS[f.tier]}" style="margin-top:4px;display:inline-block;">${TIER_LABEL[f.tier]||f.tier}</span>`;
 
-  document.getElementById('topbarUser').innerHTML = `
-    <div style="text-align:right;">
-      <div class="user-name">${escapeHtml(session.user.name)}</div>
-      <div class="user-role">${escapeHtml(session.user.roleLabel || ROLE_LABELS[session.user.role] || session.user.role)}</div>
-    </div>
+  document.getElementById('sidebarFoot').innerHTML = `
+    <div class="user-name">${escapeHtml(session.user.name)}</div>
+    <div class="user-facility">${escapeHtml(session.user.roleLabel || ROLE_LABELS[session.user.role] || session.user.role)}</div>
     <button class="btn btn-sm btn-logout" onclick="doLogout()">Log Out</button>`;
 }
-function openSidebar(){ document.getElementById('topbarMain').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
-function closeSidebar(){ document.getElementById('topbarMain').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
+function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
+function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
 function goTo(view){ state.activeView = view; render(); closeSidebar(); }
 function goToProcessing(tab){ processingTab = tab; render(); closeSidebar(); }
 function goToReports(tab){ reportsTab = tab; render(); closeSidebar(); }
@@ -1215,9 +1215,7 @@ function renderAcceptanceTab(orders, f){
     if(!specimens.length) return '';
     return `<div class="order-card">
       <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
-        <div class="muted" style="font-size:11.5px;">Collected ${fmtDate(o.collectedAt)} by ${escapeHtml(o.collectedBy||'—')}</div></div>
-        ${specimens.length>1 && hasCapability('accept')? `<button class="btn btn-outline btn-sm" onclick="acceptAllSpecimens(${JSON.stringify(specimens.map(s=>s.specimenNumber))})">Accept All (${specimens.length})</button>`:''}
-      </div>
+        <div class="muted" style="font-size:11.5px;">Collected ${fmtDate(o.collectedAt)} by ${escapeHtml(o.collectedBy||'—')}</div></div></div>
       ${specimens.map(s=>`<div class="test-row" style="cursor:pointer;" onclick="document.getElementById('acceptScanField').value='${s.specimenNumber}';scanSpecimenForAcceptance();">
         <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span></div>
         <div><span class="pill pill-amber">Awaiting Acceptance</span></div>
@@ -1283,41 +1281,11 @@ async function acceptSpecimen(specimenNumber){
     showToast('Specimen received into the laboratory.');
   });
 }
-async function acceptAllSpecimens(specimenNumbers){
-  if(!confirm(`Accept all ${specimenNumbers.length} specimen(s) on this memo?`)) return;
-  await withErrorToast(async ()=>{
-    for(const num of specimenNumbers) await api.acceptSpecimen(num);
-    await render();
-    showToast(`${specimenNumbers.length} specimen(s) accepted.`);
-  });
-}
-let rejectModalSpecimenNumber = null;
 async function rejectSpecimen(specimenNumber){
-  rejectModalSpecimenNumber = specimenNumber;
-  let reasons = [];
-  try{ reasons = await api.rejectionReasons(); }catch(e){ /* fall through with empty list */ }
-  document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-head"><h2>Reject Specimen</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <div class="field"><label>Reason</label>
-        <select id="reject_reason" onchange="document.getElementById('reject_other_wrap').style.display=this.value==='__other__'?'block':'none';">
-          ${reasons.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('')}
-          <option value="__other__">Other — specify below</option>
-        </select>
-      </div>
-      <div class="field" id="reject_other_wrap" style="${reasons.length?'display:none;':''}"><label>Specify</label><input id="reject_other" placeholder="e.g. leaking in transit"></div>
-      <div class="actions-row"><button class="btn btn-danger" onclick="confirmRejectSpecimen()">Reject Specimen</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
-    </div>
-  </div>`;
-}
-async function confirmRejectSpecimen(){
-  const sel = document.getElementById('reject_reason').value;
-  const reason = sel==='__other__' ? (document.getElementById('reject_other').value||'').trim() : sel;
-  if(!reason){ showToast('Enter or select a reason.'); return; }
+  const reason = prompt('Reason for rejection (e.g. haemolysed, insufficient volume, unlabelled):');
+  if(reason===null || !reason.trim()) return;
   await withErrorToast(async ()=>{
-    acceptanceScanResult = await api.rejectSpecimen(rejectModalSpecimenNumber, reason);
-    closeModal();
+    acceptanceScanResult = await api.rejectSpecimen(specimenNumber, reason);
     await render();
     showToast('Specimen rejected.');
   });
@@ -1917,7 +1885,6 @@ async function viewSettings(){
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='reflex'?'active':''}" onclick="settingsTab='reflex';render();">Reflex Rules</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='organisms'?'active':''}" onclick="settingsTab='organisms';render();">Organisms</div>`:''}
       ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='antibiotics'?'active':''}" onclick="settingsTab='antibiotics';render();">Antibiotics</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='rejectreasons'?'active':''}" onclick="settingsTab='rejectreasons';render();">Rejection Reasons</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
@@ -1933,7 +1900,6 @@ async function viewSettings(){
       : settingsTab==='reflex'? await viewReflexRules()
       : settingsTab==='organisms'? await viewOrganisms()
       : settingsTab==='antibiotics'? await viewAntibiotics()
-      : settingsTab==='rejectreasons'? await viewRejectionReasons()
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
       : settingsTab==='wards'? await viewWards()
@@ -2668,48 +2634,6 @@ async function saveAntibiotic(){
 async function deleteAntibiotic(id){
   if(!confirm('Delete this antibiotic?')) return;
   await withErrorToast(async ()=>{ await api.deleteAntibiotic(id); await render(); });
-}
-
-/* ---------- Rejection Reasons (manage_catalog) — standardized specimen rejection wording ---------- */
-async function viewRejectionReasons(){
-  const reasons = await api.rejectionReasons();
-  const rows = reasons.map(r=>`<tr>
-    <td>${escapeHtml(r.name)}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteRejectionReason('${r.id}')">Delete</button></td>
-  </tr>`).join('');
-  return `
-    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
-      <div><h1>Rejection Reasons</h1><p>The standard list offered when rejecting a specimen at Sample Acceptance — keeps wording consistent across every facility, and makes rejection patterns reportable.</p></div>
-      <button class="btn" onclick="openRejectionReasonModal()">+ New Reason</button>
-    </div>
-    <div class="card" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Reason</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="2" class="empty">No reasons defined yet — rejection will fall back to free text until at least one exists.</td></tr>`}</tbody></table>
-    </div>
-  `;
-}
-function openRejectionReasonModal(){
-  document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:380px;">
-      <div class="modal-head"><h2>New Rejection Reason</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <div class="field"><label>Reason</label><input id="rr_name" placeholder="e.g. Hemolyzed"></div>
-      <div class="actions-row"><button class="btn" onclick="saveRejectionReason()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
-    </div>
-  </div>`;
-}
-async function saveRejectionReason(){
-  const name = (document.getElementById('rr_name').value||'').trim();
-  if(!name){ showToast('Enter a reason.'); return; }
-  await withErrorToast(async ()=>{
-    await api.createRejectionReason(name);
-    closeModal(); await render();
-    showToast('Rejection reason saved.');
-  });
-}
-async function deleteRejectionReason(id){
-  if(!confirm('Delete this reason?')) return;
-  await withErrorToast(async ()=>{ await api.deleteRejectionReason(id); await render(); });
 }
 
 /* ---------- Connection (read-only, Regional admin only) ---------- */
