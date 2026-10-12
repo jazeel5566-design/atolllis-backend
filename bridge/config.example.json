@@ -1,0 +1,9 @@
+{
+  "lisUrl": "https://YOUR-ATOLLLIS-ADDRESS",
+  "instrumentKey": "PASTE THE KEY SHOWN ONCE IN SETTINGS > INSTRUMENTS",
+  "protocol": "astm",
+  "transport": { "type": "tcp-server", "port": 5001 },
+  "astm": { "testIdComponent": 4, "orderActionCode": "N" },
+  "queueDir": "./queue",
+  "logRaw": false
+}

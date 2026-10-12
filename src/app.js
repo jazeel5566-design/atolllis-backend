@@ -33,6 +33,8 @@ app.use('/api/antibiotics', require('./routes/antibiotics'));
 app.use('/api/tests', require('./routes/tests'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/history', require('./routes/history'));
+app.use('/api/instruments', require('./routes/instruments'));
+app.use('/api/interface', require('./routes/interface'));
 
 // Serves the frontend (public/index.html) at the same origin as the API — the recommended
 // combined deployment. If you're hosting the frontend separately instead, this block is harmless

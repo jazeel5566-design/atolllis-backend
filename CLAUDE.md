@@ -70,6 +70,14 @@ Data model: `Order` (one per HIS/Billing memo, unique `memoNumber`) → `OrderTe
 5. **Results** (`routes/tests.js`, addressed as `/api/tests/:orderId/:code/...`) — analyser result (requires `processing`; 422 on unit mismatch against the catalog), manual result or structured culture/sensitivity result (require `received`); all land in `interfaced`.
 6. **Certify** — performing facility only. `evalResult()` computes the flag from sex/age-matched `ReferenceRange` plus catalog critical limits. A critical value is snapshotted to `OrderTest.criticalFlag` at result entry and cannot be certified until a `reached` `CriticalNotification` attempt is recorded (`POST /api/tests/:orderId/:code/critical-notification`). Escalation is computed on read from `enteredAt` (`src/utils/critical.js`: overdue at 30 min, Regional admin at 60 min) — `GET /api/tests/critical` is the worklist, `/critical-log` the history; the admin's cross-lab list deliberately omits value and patient. Returns `reflexSuggestions` from `ReflexRule` — never auto-ordered; `/add-reflex-test` adds an `ordered` test that then needs `/recollect`.
 
+### Analyser interface
+
+Analysers reach the app only through the bridge program in `bridge/` (a separate package with its own `package.json`, run on a lab PC — not part of the Render deployment). The bridge speaks ASTM (CLSI LIS01-A2 link + LIS02-A2 records, TCP or serial) or HL7 v2.5.1 over MLLP to one analyser and calls `/api/interface/{heartbeat,query,results}` with an `X-Instrument-Key` header — no JWT; `routes/interface.js` resolves the key (stored only as a SHA-256 hash on `Instrument`) and everything it does is scoped to that instrument's facility.
+
+- `src/utils/interface.js` holds the rules, shared by both protocols: a query returns only tests on that specimen that this facility performs, are `received`/`processing`, and have an `InstrumentTestMap` row, and moves them to `processing`; a result lands as `interfaced` (same as manual entry, so the critical-value rule applies) or is written to `InterfaceMessage` as `unmatched` (held for a person), `duplicate`, `refused` (already certified) or `logged` (QC). Units are never converted — a unit that is not the catalog's or the mapping's declared spelling is held.
+- Staff side is `routes/instruments.js` (JWT): instruments and mappings need `manage_users` and are facility-scoped like wards; the log, retry and dismiss need `process`.
+- `bridge/simulator.js` plays an analyser for testing. It must never be pointed at the live system with a real barcode.
+
 ### Conventions
 
 - IDs for most tables are app-generated via `uid('<PREFIX>')` (`src/utils/id.js`), e.g. `ORD…`, `OT…`, `SPC…`, `PT…`, `LOG…`; they are not DB defaults.

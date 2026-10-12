@@ -1,0 +1,15 @@
+{
+  "name": "atolllis-analyser-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs on a lab PC: speaks ASTM (CLSI LIS01-A2 / LIS02-A2) or HL7 v2 (MLLP) to one analyser and relays to AtollLIS over HTTPS.",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js",
+    "simulate": "node simulator.js"
+  },
+  "engines": { "node": ">=18" },
+  "optionalDependencies": {
+    "serialport": "^12.0.0"
+  }
+}

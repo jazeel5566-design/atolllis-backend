@@ -336,6 +336,17 @@ const api = {
   certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
   criticalWorklist: () => apiRequest('/tests/critical'),
   criticalLog: (params) => apiRequest(`/tests/critical-log${params?('?'+params):''}`),
+  instruments: (facilityId) => apiRequest(`/instruments${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
+  createInstrument: (data) => apiRequest('/instruments', {method:'POST', body:data}),
+  updateInstrument: (id, data) => apiRequest(`/instruments/${id}`, {method:'PUT', body:data}),
+  deleteInstrument: (id) => apiRequest(`/instruments/${id}`, {method:'DELETE'}),
+  regenerateInstrumentKey: (id) => apiRequest(`/instruments/${id}/regenerate-key`, {method:'POST'}),
+  instrumentMaps: (id) => apiRequest(`/instruments/${id}/maps`),
+  createInstrumentMap: (id, data) => apiRequest(`/instruments/${id}/maps`, {method:'POST', body:data}),
+  deleteInstrumentMap: (id, mapId) => apiRequest(`/instruments/${id}/maps/${mapId}`, {method:'DELETE'}),
+  interfaceMessages: (view) => apiRequest(`/instruments/messages?view=${view||'held'}`),
+  retryInterfaceMessage: (id) => apiRequest(`/instruments/messages/${id}/retry`, {method:'POST'}),
+  dismissInterfaceMessage: (id, note) => apiRequest(`/instruments/messages/${id}/dismiss`, {method:'POST', body:{note}}),
   recordCriticalNotification: (orderId, code, data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/critical-notification`, {method:'POST', body:data}),
   addReflexTest: (orderId, code) => apiRequest(`/tests/${orderId}/add-reflex-test`, {method:'POST', body:{code}}),
   testAliases: () => apiRequest('/test-aliases'),
@@ -1395,9 +1406,10 @@ let processingTab = 'analyser';
 let analyserScanResult = null;
 async function viewProcessingPage(){
   const fid = session.user.facilityId, f = fac(fid);
-  const [allOrders, incomingQ, critical] = await Promise.all([
+  const [allOrders, incomingQ, critical, iface] = await Promise.all([
     api.orders(), api.orders('incoming_referrals'),
     api.criticalWorklist().catch(()=>({items:[], escalated:[], overdueMinutes:30, escalateMinutes:60})),
+    api.interfaceMessages(processingTab==='interface' ? interfaceLogView : 'held').catch(()=>({held:0, messages:[]})),
   ]);
   const criticalLog = processingTab==='critical' ? await api.criticalLog(criticalLogParams()).catch(()=>[]) : [];
   const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)));
@@ -1407,12 +1419,79 @@ async function viewProcessingPage(){
       <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';processingPatientTypeFilter='';processingStatOnly=false;render();">Analyser Processing (${analyserQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
       <div class="tab ${processingTab==='critical'?'active':''}" onclick="processingTab='critical';worklistSearch='';render();" ${critical.items.length?'style="color:var(--crimson);font-weight:700;"':''}>${critical.items.length?'⚠ ':''}Critical Values (${critical.items.length})</div>
+      <div class="tab ${processingTab==='interface'?'active':''}" onclick="processingTab='interface';worklistSearch='';render();" ${iface.held?'style="color:var(--amber);font-weight:700;"':''}>Analyser Interface (${iface.held} held)</div>
     </div>
     ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
       : processingTab==='critical'? renderCriticalTab(critical, criticalLog)
+      : processingTab==='interface'? renderInterfaceTab(iface)
       : renderIncomingTab(incomingQ, f)}
   `;
 }
+/* ---------- Analyser Interface: what the analysers asked and sent ---------- */
+let interfaceLogView = 'held';
+const INTERFACE_STATUS = {
+  accepted:{label:'Accepted', cls:'pill-teal'}, duplicate:{label:'Duplicate', cls:'pill-grey'},
+  unmatched:{label:'Held', cls:'pill-amber'}, refused:{label:'Refused', cls:'pill-crimson'},
+  logged:{label:'QC — logged', cls:'pill-purple'}, resolved:{label:'Resolved', cls:'pill-teal'}, dismissed:{label:'Dismissed', cls:'pill-grey'},
+};
+function renderInterfaceTab(iface){
+  const rows = iface.messages.map(m=>{
+    const st = INTERFACE_STATUS[m.status] || {label:m.status, cls:'pill-grey'};
+    const t = m.testCode ? test(m.testCode) : null;
+    const detail = [m.detail, m.resolvedBy ? `${m.status==='dismissed'?'Dismissed':'Resolved'} by ${m.resolvedBy}, ${fmtDate(m.resolvedAt)}${m.resolveNote?': '+m.resolveNote:''}` : ''].filter(Boolean).join(' · ');
+    return `<tr>
+      <td style="white-space:nowrap;">${fmtDate(m.createdAt)}</td>
+      <td>${escapeHtml(m.instrumentName)}</td>
+      <td>${m.kind==='query'?'Query':m.kind==='qc'?'QC':'Result'}</td>
+      <td class="mono">${escapeHtml(m.specimenNumber||'—')}</td>
+      <td>${m.instrumentCode?`<span class="mono">${escapeHtml(m.instrumentCode)}</span>`:'—'}${t?` <span class="muted">→ ${escapeHtml(t.name)}</span>`:''}</td>
+      <td class="mono">${m.value?`${escapeHtml(m.value)} ${escapeHtml(m.unit||'')}`:'—'}</td>
+      <td><span class="pill ${st.cls}">${st.label}</span></td>
+      <td style="font-size:12px;">${escapeHtml(detail)}</td>
+      <td style="white-space:nowrap;">${m.status==='unmatched'? `${m.kind==='result'?`<button class="btn btn-sm btn-outline" onclick="retryInterfaceMessage('${m.id}')">Retry</button> `:''}<button class="btn btn-sm btn-outline" onclick="openDismissInterfaceModal('${m.id}')">Dismiss</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="actions-row" style="margin-top:0;">
+        <button class="btn btn-sm ${interfaceLogView==='held'?'':'btn-outline'}" onclick="interfaceLogView='held';render();">Held for review (${iface.held})</button>
+        <button class="btn btn-sm ${interfaceLogView==='all'?'':'btn-outline'}" onclick="interfaceLogView='all';render();">Full log</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0;">A result is held when the interface cannot place it safely — an unknown barcode, an analyser code with no mapping, a wrong unit. Fix the cause and press Retry, or Dismiss it with a note. Nothing held is ever written to a patient.</p>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Time</th><th>Instrument</th><th>Type</th><th>Specimen No.</th><th>Analyser code</th><th>Value</th><th>Outcome</th><th>Detail</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="9" class="empty">${interfaceLogView==='held'?'Nothing is waiting for review.':'No interface activity yet.'}</td></tr>`}</tbody></table>
+    </div>`;
+}
+async function retryInterfaceMessage(id){
+  await withErrorToast(async ()=>{
+    const r = await api.retryInterfaceMessage(id);
+    await render();
+    showToast(r.status==='unmatched' ? `Still held: ${r.detail}` : r.status==='accepted' ? 'Result accepted — awaiting validation.' : (r.detail||'Resolved.'));
+  });
+}
+function openDismissInterfaceModal(id){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-head"><h2>Dismiss held entry</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">The entry stays in the full log with your name and this note. It will not be written to any patient.</p>
+      <div class="field"><label>Why is it being dismissed?</label><input id="iface_dismiss_note" placeholder="Required"></div>
+      <div class="actions-row"><button class="btn" onclick="dismissInterfaceMessage('${id}')">Dismiss</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function dismissInterfaceMessage(id){
+  const note = (document.getElementById('iface_dismiss_note').value||'').trim();
+  if(!note){ showToast('Enter a note saying why.'); return; }
+  await withErrorToast(async ()=>{
+    await api.dismissInterfaceMessage(id, note);
+    closeModal(); await render();
+    showToast('Entry dismissed.');
+  });
+}
+
 let processingCategoryFilter = '';
 let processingStatusFilter = '';
 let processingDateFilter = '';
@@ -2095,6 +2174,7 @@ async function viewSettings(){
       ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
       ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='wards'?'active':''}" onclick="settingsTab='wards';render();">Wards</div>`:''}
+      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='instruments'?'active':''}" onclick="settingsTab='instruments';render();">Instruments</div>`:''}
       ${hasCapability('view_audit')? `<div class="tab ${settingsTab==='audit'?'active':''}" onclick="settingsTab='audit';render();">Audit Log</div>`:''}
       <div class="tab ${settingsTab==='account'?'active':''}" onclick="settingsTab='account';render();">My Account</div>
       ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
@@ -2110,6 +2190,7 @@ async function viewSettings(){
       : settingsTab==='networks'? await viewNetworks()
       : settingsTab==='users'? await viewUsers()
       : settingsTab==='wards'? await viewWards()
+      : settingsTab==='instruments'? await viewInstruments()
       : settingsTab==='audit'? await viewAuditLog()
       : settingsTab==='account'? viewMyAccount()
       : settingsTab==='connection'? await viewConnection()
@@ -2456,6 +2537,159 @@ async function deleteWard(id){
     wardsCache = [];
     await render();
   });
+}
+
+/* ---------- Instruments (facility-scoped, manage_users capability) ---------- */
+// An analyser is connected through a bridge program on a lab PC (the bridge/ folder of this
+// project), which identifies itself with the key issued here.
+let instrumentsFacilityFilter = null;
+const INSTRUMENT_PROTOCOLS = {astm:'ASTM (CLSI LIS01-A2 / LIS02-A2)', hl7:'HL7 v2.5.1 (MLLP)'};
+const INSTRUMENT_CONNECTIONS = {tcp:'Network (TCP/IP)', serial:'Serial cable (RS-232)'};
+async function viewInstruments(){
+  const isAdmin = session.user.role==='admin';
+  let facilities = [];
+  if(isAdmin) facilities = await api.facilities();
+  const targetFacilityId = isAdmin ? (instrumentsFacilityFilter || session.user.facilityId) : session.user.facilityId;
+  const instruments = await api.instruments(isAdmin ? targetFacilityId : undefined);
+  const facilityPicker = isAdmin ? `<div class="field" style="max-width:320px;"><label>Facility</label>
+    <select onchange="instrumentsFacilityFilter=this.value;render();">
+      ${facilities.map(fc=>`<option value="${fc.id}" ${targetFacilityId===fc.id?'selected':''}>${escapeHtml(fc.name)}</option>`).join('')}
+    </select></div>` : '';
+  const rows = instruments.map(i=>`<tr>
+    <td><b>${escapeHtml(i.name)}</b>${(i.manufacturer||i.model)?`<div class="muted" style="font-size:11.5px;">${escapeHtml([i.manufacturer,i.model].filter(Boolean).join(' '))}</div>`:''}</td>
+    <td>${INSTRUMENT_PROTOCOLS[i.protocol]||escapeHtml(i.protocol)}<div class="muted" style="font-size:11.5px;">${INSTRUMENT_CONNECTIONS[i.connection]||escapeHtml(i.connection)}</div></td>
+    <td class="mono">${escapeHtml(i.keyPrefix)}…</td>
+    <td>${i.mappedTests||0}</td>
+    <td>${i.lastSeenAt? fmtDate(i.lastSeenAt) : '<span class="muted">Never connected</span>'}</td>
+    <td><span class="pill ${i.enabled?'pill-teal':'pill-grey'}">${i.enabled?'On':'Off'}</span></td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-sm btn-outline" onclick="openInstrumentMapsModal('${i.id}')">Test Codes</button>
+      <button class="btn btn-sm btn-outline" onclick="toggleInstrument('${i.id}', ${!i.enabled})">${i.enabled?'Switch Off':'Switch On'}</button>
+      <button class="btn btn-sm btn-outline" onclick="regenerateInstrumentKey('${i.id}')">New Key</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteInstrument('${i.id}')">Remove</button>
+    </td>
+  </tr>`).join('');
+  return `
+    <div class="pagehead" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+      <div>${facilityPicker}<h1 style="margin-top:8px;">Instruments</h1><p>Analysers connected to the LIS at this facility. Each one talks through the bridge program on a lab PC, using the key issued here. Results it sends still wait for validation by a person.</p></div>
+      <button class="btn" onclick="openInstrumentModal('${targetFacilityId}')">+ New Instrument</button>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Instrument</th><th>Protocol</th><th>Key</th><th>Mapped tests</th><th>Bridge last seen</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="empty">No instruments registered at this facility.</td></tr>`}</tbody></table>
+    </div>
+  `;
+}
+function openInstrumentModal(facilityId){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-head"><h2>New Instrument</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="field"><label>Name used in the lab</label><input id="ins_name"></div>
+      <div class="grid grid-2">
+        <div class="field"><label>Manufacturer</label><input id="ins_manufacturer"></div>
+        <div class="field"><label>Model</label><input id="ins_model"></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>Protocol</label><select id="ins_protocol">${Object.entries(INSTRUMENT_PROTOCOLS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+        <div class="field"><label>Connection</label><select id="ins_connection">${Object.entries(INSTRUMENT_CONNECTIONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+      </div>
+      <p class="muted" style="font-size:12px;">The protocol and connection are in the analyser's host-interface manual. HL7 instruments connect over the network only.</p>
+      <div class="actions-row"><button class="btn" onclick="saveInstrument('${facilityId}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveInstrument(facilityId){
+  const v = id => (document.getElementById(id).value||'').trim();
+  if(!v('ins_name')){ showToast('Enter a name for the instrument.'); return; }
+  await withErrorToast(async ()=>{
+    const created = await api.createInstrument({ facilityId, name:v('ins_name'), manufacturer:v('ins_manufacturer'), model:v('ins_model'), protocol:v('ins_protocol'), connection:v('ins_connection') });
+    await render();
+    showInstrumentKey(created.name, created.key);
+  });
+}
+// The key is only ever available at the moment it is issued.
+function showInstrumentKey(name, key){
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head"><h2>Key for ${escapeHtml(name)}</h2></div>
+      <p style="font-size:13px;">Copy this key into the bridge's <span class="mono">config.json</span> on the lab PC now. <b>It is shown only this once</b> — if it is lost, issue a new one with "New Key".</p>
+      <div class="field"><input id="ins_key_show" class="mono" readonly value="${escapeHtml(key)}" onclick="this.select()"></div>
+      <div class="actions-row"><button class="btn" onclick="copyInstrumentKey()">Copy Key</button><button class="btn btn-outline" onclick="closeModal()">I have saved it</button></div>
+    </div>
+  </div>`;
+}
+async function copyInstrumentKey(){
+  const el = document.getElementById('ins_key_show');
+  el.select();
+  try{ await navigator.clipboard.writeText(el.value); showToast('Key copied.'); }
+  catch(e){ showToast('Could not copy automatically — select the key and copy it by hand.'); }
+}
+async function toggleInstrument(id, enabled){
+  await withErrorToast(async ()=>{ await api.updateInstrument(id, {enabled}); await render(); });
+}
+async function regenerateInstrumentKey(id){
+  if(!confirm('Issue a new key? The bridge for this instrument stops working until the new key is put in its config.json.')) return;
+  await withErrorToast(async ()=>{
+    const r = await api.regenerateInstrumentKey(id);
+    await render();
+    showInstrumentKey(r.name, r.key);
+  });
+}
+async function deleteInstrument(id){
+  if(!confirm('Remove this instrument and its test-code mappings? Its log entries are kept.')) return;
+  await withErrorToast(async ()=>{ await api.deleteInstrument(id); await render(); });
+}
+async function openInstrumentMapsModal(id){
+  await withErrorToast(async ()=>{
+    const maps = await api.instrumentMaps(id);
+    const mapped = new Set(maps.map(m=>m.testCode));
+    const options = catalogCache.filter(t=>!t.isCulture && !mapped.has(t.code))
+      .map(t=>`<option value="${escapeHtml(t.code)}">${escapeHtml(t.code)} — ${escapeHtml(t.name)}${t.units?` (${escapeHtml(t.units)})`:''}</option>`).join('');
+    const rows = maps.map(m=>{
+      const t = test(m.testCode);
+      return `<tr>
+        <td class="mono">${escapeHtml(m.instrumentCode)}</td>
+        <td><span class="mono">${escapeHtml(m.testCode)}</span> ${escapeHtml(t?t.name:'(not in catalog)')}</td>
+        <td>${m.units? `<span class="mono">${escapeHtml(m.units)}</span>` : `<span class="muted">${escapeHtml(t&&t.units||'—')}</span>`}${m.acceptBlankUnit?' <span class="pill pill-grey" style="font-size:10px;">blank ok</span>':''}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteInstrumentMap('${id}','${m.id}')">Remove</button></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+      <div class="modal" style="max-width:760px;">
+        <div class="modal-head"><h2>Test Codes</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+        <p class="muted" style="font-size:12.5px;margin-top:-6px;">The code this analyser uses for each test, from its host-interface manual. Only mapped tests are sent to the analyser, and only mapped results are accepted.</p>
+        <div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px;">
+          <table><thead><tr><th>Analyser code</th><th>LIS test</th><th>Unit expected</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="4" class="empty">No test codes mapped yet.</td></tr>`}</tbody></table>
+        </div>
+        <h3 style="margin:16px 0 8px;font-size:13px;">Add a mapping</h3>
+        <div class="grid grid-2">
+          <div class="field"><label>Analyser code</label><input id="map_code"></div>
+          <div class="field"><label>LIS test</label><select id="map_test"><option value="">Select a test…</option>${options}</select></div>
+        </div>
+        <div class="field"><label>Unit as the analyser writes it (leave blank if it is the same as the catalog unit)</label><input id="map_units"></div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;"><input type="checkbox" id="map_blank"> This analyser sends no unit for this test — accept it as the catalog unit</label>
+        <p class="muted" style="font-size:12px;">Only enter a different unit spelling when it means exactly the same unit. A result in any other unit is held for review, never converted.</p>
+        <div class="actions-row"><button class="btn" onclick="saveInstrumentMap('${id}')">Add Mapping</button><button class="btn btn-outline" onclick="closeModal();render();">Done</button></div>
+      </div>
+    </div>`;
+  });
+}
+async function saveInstrumentMap(id){
+  const instrumentCode = (document.getElementById('map_code').value||'').trim();
+  const testCode = document.getElementById('map_test').value;
+  if(!instrumentCode || !testCode){ showToast('Enter the analyser code and choose a test.'); return; }
+  await withErrorToast(async ()=>{
+    await api.createInstrumentMap(id, { instrumentCode, testCode, units:(document.getElementById('map_units').value||'').trim(), acceptBlankUnit:document.getElementById('map_blank').checked });
+    await openInstrumentMapsModal(id);
+  });
+}
+async function deleteInstrumentMap(id, mapId){
+  if(!confirm('Remove this mapping? Results with this analyser code will be held until it is mapped again.')) return;
+  await withErrorToast(async ()=>{ await api.deleteInstrumentMap(id, mapId); await openInstrumentMapsModal(id); });
 }
 
 /* ---------- Test Categories (Regional admin only — controls barcode letters) ---------- */

@@ -452,3 +452,79 @@ model AntibioticSensitivity {
   antibiotic        Antibiotic      @relation(fields: [antibioticId], references: [id])
   result            String          // 'S' | 'I' | 'R'
 }
+
+// ---------- Analyser interface (bidirectional) ----------
+// An analyser never talks to this server directly: a bridge program on a PC in the lab speaks the
+// instrument's protocol (ASTM / CLSI LIS01-A2 + LIS02-A2, or HL7 v2 over MLLP) and relays to
+// /api/interface over HTTPS, identifying itself with the instrument's key. Only a hash of the key
+// is stored; keyPrefix is kept so staff can tell which key a bridge was set up with.
+model Instrument {
+  id           String    @id
+  facilityId   String // the lab the analyser stands in — it can only touch tests performed there
+  name         String
+  manufacturer String?
+  model        String?
+  protocol     String // 'astm' | 'hl7'
+  connection   String // 'tcp' | 'serial' — how the bridge reaches the analyser
+  keyHash      String    @unique
+  keyPrefix    String
+  enabled      Boolean   @default(true)
+  lastSeenAt   DateTime? // last time its bridge called in
+  createdAt    DateTime  @default(now())
+
+  testMaps InstrumentTestMap[]
+
+  @@unique([facilityId, name])
+}
+
+// The analyser's own code for a catalog test. units is the unit text this analyser sends when it
+// differs in spelling from the catalog's (null = it must match the catalog unit);
+// acceptBlankUnit covers instruments that send no unit at all.
+model InstrumentTestMap {
+  id              String     @id
+  instrumentId    String
+  instrument      Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  instrumentCode  String
+  testCode        String // TestDefinition.code — a snapshot, like OrderTest.code
+  units           String?
+  acceptBlankUnit Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+
+  @@unique([instrumentId, instrumentCode])
+  @@unique([instrumentId, testCode])
+}
+
+// One row per query and per result that came through the interface, whatever became of it — the
+// trail of what each analyser asked and sent. instrumentName is snapshotted. status:
+//   accepted  — written to the test (kind 'result') or answered (kind 'query')
+//   duplicate — same value already on the test; nothing changed
+//   unmatched — could not be placed (unknown barcode, unmapped code, wrong unit, ...); waits for
+//               a person to retry or dismiss it
+//   refused   — must never be applied (test already certified)
+//   logged    — QC / calibration; recorded only, never written to a patient
+//   resolved | dismissed — an unmatched row after a person dealt with it
+model InterfaceMessage {
+  id             String    @id
+  instrumentId   String
+  instrumentName String
+  facilityId     String
+  kind           String // 'query' | 'result' | 'qc'
+  specimenNumber String?
+  instrumentCode String?
+  testCode       String?
+  value          String?
+  unit           String?
+  flags          String? // abnormal flags as the analyser sent them
+  status         String
+  detail         String?
+  raw            String? // the protocol record as received
+  orderTestId    String?
+  previousValue  String? // what a rerun replaced
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolveNote    String?
+  createdAt      DateTime  @default(now())
+
+  @@index([facilityId, createdAt])
+  @@index([facilityId, status])
+}
