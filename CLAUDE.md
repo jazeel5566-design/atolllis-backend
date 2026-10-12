@@ -54,7 +54,7 @@ Tenant isolation is enforced only in application code, per route, keyed on `req.
 
 - The **ordering facility** sees its whole order. Any other facility sees only tests that were `referred` to it (`performingFacilityId === viewer`), and specimens carrying at least one such test.
 - The `interfaced` status (result entered, not yet certified) is exposed as `visibleStatus: 'processing'` to anyone but the performing facility.
-- This rule is implemented separately in `mapOrderForViewer()` (`routes/orders.js`), `visibleTestsForSpecimen()` (`routes/specimens.js`), `routes/history.js`, and `routes/reports.js` (reports: ordering facility only). A change to visibility has to be made in all of them.
+- This rule is implemented separately in `mapOrderForViewer()` (`routes/orders.js`), `visibleTestsForSpecimen()` (`routes/specimens.js`), `routes/history.js`, and `routes/reports.js` (reports: one sheet per performing lab; the ordering facility gets every sheet, a reference lab only its own). A change to visibility has to be made in all of them.
 - Mutations check ownership explicitly: collection/acceptance/referral require `order.orderingFacilityId === req.user.facilityId`; result entry and certification require `test.performingFacilityId === req.user.facilityId`.
 
 ### Order pipeline

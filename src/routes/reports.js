@@ -12,13 +12,16 @@ router.get('/:orderId', async (req, res) => {
   });
   if (!order) return res.status(404).json({ error: 'Not found' });
 
-  // Reports are issued by the ordering facility, whether tests were performed locally or referred —
-  // that's true even for a referred test, since the certified result flows back automatically.
-  if (order.orderingFacilityId !== req.user.facilityId) {
-    return res.status(403).json({ error: 'Only the ordering facility can view/issue this report' });
+  // The ordering facility sees the whole report — its own tests and anything it referred out. A
+  // reference lab sees only the tests it performs for this order, i.e. just its own sheet.
+  const fid = req.user.facilityId;
+  const own = order.orderingFacilityId === fid;
+  const relevantTests = order.tests.filter(t =>
+    t.status !== 'deselected' && (own || (t.referred && t.performingFacilityId === fid))
+  );
+  if (!own && !relevantTests.length) {
+    return res.status(403).json({ error: 'This report is not available to your facility' });
   }
-
-  const relevantTests = order.tests.filter(t => t.status !== 'deselected');
   const codes = relevantTests.map(t => t.code);
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: codes } }, include: { refRanges: true } });
   const performingFacilities = await prisma.facility.findMany({ where: { id: { in: relevantTests.map(t => t.performingFacilityId) } } });
@@ -29,7 +32,7 @@ router.get('/:orderId', async (req, res) => {
     const specimen = order.specimens.find(s => s.id === t.specimenId);
     const specimenNumber = specimen ? specimen.specimenNumber : null;
     if (t.status !== 'completed') {
-      return { code: t.code, name: t.name, status: t.status, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
+      return { code: t.code, name: t.name, method: tc ? tc.method : null, status: t.status, performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
     }
     if (tc && tc.isCulture) {
       const cultureResult = await prisma.cultureResult.findUnique({
@@ -37,8 +40,8 @@ router.get('/:orderId', async (req, res) => {
         include: { organisms: { include: { organism: true, sensitivities: { include: { antibiotic: true } } } } },
       });
       return {
-        code: t.code, name: t.name, isCulture: true, cultureResult,
-        performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
+        code: t.code, name: t.name, method: tc.method, isCulture: true, cultureResult,
+        performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
         validatedBy: t.validatedBy, validatedAt: t.validatedAt,
       };
     }
@@ -46,20 +49,38 @@ router.get('/:orderId', async (req, res) => {
     return {
       code: t.code, name: t.name, method: tc ? tc.method : null, value: t.value, unit: t.unit,
       ...info,
-      performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
+      performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
       validatedBy: t.validatedBy, validatedAt: t.validatedAt, comment: tc ? tc.comment : null,
       criticalNotifiedTo: t.criticalNotifiedTo, criticalNotifiedAt: t.criticalNotifiedAt,
     };
   }));
 
+  // One sheet per lab that performs tests on this order, each under that lab's own header — the
+  // ordering facility's sheet first, then one per reference lab. A sheet lists only the specimens
+  // its own tests were run on.
+  const sheets = [];
+  relevantTests.forEach((t, i) => {
+    let sheet = sheets.find(s => s.facility.id === t.performingFacilityId);
+    if (!sheet) {
+      const pf = performingFacilities.find(f => f.id === t.performingFacilityId);
+      sheet = { facility: { id: t.performingFacilityId, name: pf ? pf.name : 'Unknown facility' }, isOrderingFacility: t.performingFacilityId === order.orderingFacilityId, specimenIds: new Set(), lines: [] };
+      sheets.push(sheet);
+    }
+    sheet.lines.push(lines[i]);
+    if (t.specimenId) sheet.specimenIds.add(t.specimenId);
+  });
+  sheets.sort((a, b) => (b.isOrderingFacility ? 1 : 0) - (a.isOrderingFacility ? 1 : 0));
+
   res.json({
     order: { id: order.id, memoNumber: order.memoNumber, createdAt: order.createdAt, orderedBy: order.orderedBy },
-    facility: { name: order.orderingFacility.name },
+    facility: { id: order.orderingFacilityId, name: order.orderingFacility.name }, // the ordering facility
     patient: order.patient,
     patientType: order.patientType,
     wardName: order.ward ? order.ward.name : null,
-    specimens: order.specimens.map(s => ({ specimenNumber: s.specimenNumber, bottleType: s.bottleType })),
-    lines,
+    sheets: sheets.map(s => ({
+      facility: s.facility, isOrderingFacility: s.isOrderingFacility, lines: s.lines,
+      specimens: order.specimens.filter(sp => s.specimenIds.has(sp.id)).map(sp => ({ specimenNumber: sp.specimenNumber, bottleType: sp.bottleType })),
+    })),
   });
 });
 

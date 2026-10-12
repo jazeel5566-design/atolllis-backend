@@ -153,7 +153,10 @@
     body *{visibility:hidden;}
     #labelPrintArea, #labelPrintArea *, #printArea, #printArea *{visibility:visible;}
     #labelPrintArea{position:fixed;top:0;left:0;width:320px;}
-    #printArea{position:fixed;top:0;left:0;width:100%;}
+    html,body{background:#fff !important;}
+    #printArea{position:absolute;top:0;left:0;width:100%;}
+    #printArea .report-sheet{border:none;border-radius:0;padding:0;margin:0;page-break-after:always;break-after:page;}
+    #printArea .report-sheet:last-child{page-break-after:auto;break-after:auto;}
     .print-label{page-break-after:always;}
     .print-label:last-child{page-break-after:auto;}
     .btn,.no-print{display:none !important;}
@@ -1952,7 +1955,7 @@ async function viewReportsPage(){
 }
 async function viewReportsInner(){
   const q = reportSearch.trim().toLowerCase();
-  let orders = await api.orders('reportable');
+  let orders = await api.orders('report_list');
   if(q) orders = orders.filter(o=>{
     const p = o.patient;
     const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
@@ -1974,7 +1977,7 @@ async function viewReportsInner(){
     const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
     const anyDone = doneCount>0;
     return `<tr style="cursor:pointer;" onclick="selectedReportOrder='${o.id}';render();">
-      <td class="mono">${escapeHtml(o.memoNumber||o.id)}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
+      <td class="mono">${escapeHtml(o.memoNumber||o.id)}${o.viewerIsOrigin?'':`<div class="muted" style="font-family:inherit;font-size:11px;">Referred from ${escapeHtml(fac(o.orderingFacilityId).name)}</div>`}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
       <td>${doneCount}/${collectedCount} completed</td>
       <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectedReportOrder='${o.id}';render();">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
     </tr>`;
@@ -2009,14 +2012,18 @@ async function viewReportsInner(){
     ${selectedReportOrder ? await renderReportSheet(selectedReportOrder) : ''}
   `;
 }
+// One sheet per lab that performed tests on the order, each under that lab's own header — the
+// ordering facility's first, then each reference lab's. Printing puts every sheet on its own page.
 async function renderReportSheet(orderId){
   let report;
   try{ report = await api.report(orderId); }
   catch(e){ return `<div class="card" style="color:var(--crimson);">${escapeHtml(e.message)}</div>`; }
-  const { order, facility, patient, patientType, wardName, lines } = report;
-  const rows = lines.map(l=>{
+  const { order, facility, patient, patientType, wardName, sheets } = report;
+  const stat = l => l.isStat ? ` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>` : '';
+  const certified = l => `<div class="muted" style="font-size:11px;font-family:inherit;font-weight:400;margin-top:5px;">Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</div>`;
+  const renderLine = l=>{
     if(l.status){
-      return `<tr><td>${escapeHtml(l.name)}${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</td><td class="mono">${l.code}</td><td>${escapeHtml(test(l.code)?.method||'')}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}${l.referred?` — at ${escapeHtml(l.performingFacility||'')}`:''}</td></tr>`;
+      return `<tr><td>${escapeHtml(l.name)}${stat(l)}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}</td><td>${escapeHtml(l.method||'')}</td></tr>`;
     }
     if(l.isCulture){
       const cr = l.cultureResult;
@@ -2026,43 +2033,41 @@ async function renderReportSheet(orderId){
         return `<div style="margin-top:4px;"><b>${escapeHtml(o.organism.name)}</b>${o.colonyCount?` — ${escapeHtml(o.colonyCount)}`:''}<div style="font-size:11px;margin-top:2px;">${sensRows||'<span class="muted">No sensitivity data recorded.</span>'}</div></div>`;
       }).join('');
       return `<tr>
-        <td colspan="3"><b>${escapeHtml(l.name)}</b> <span class="mono muted">(${l.code})</span>${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</td>
-        <td colspan="2">
-          <div><b>${growthLabel}</b></div>
-          ${organismsHtml}
-          <div class="muted" style="font-size:11px;margin-top:4px;">Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</div>
-        </td>
+        <td><b>${escapeHtml(l.name)}</b>${stat(l)}</td>
+        <td colspan="2"><div><b>${growthLabel}</b></div>${organismsHtml}${certified(l)}</td>
+        <td>${escapeHtml(l.method||'')}</td>
       </tr>`;
     }
     return `<tr>
-      <td>${escapeHtml(l.name)}${l.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
-      <td class="mono">${l.code}</td>
+      <td>${escapeHtml(l.name)}${stat(l)}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
+      <td><span class="mono flag-${(l.flag||'').replace(' ','')}" style="display:inline-block;">${escapeHtml(l.value)} ${escapeHtml(l.unit||'')} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</span>${certified(l)}</td>
+      <td class="muted" style="font-size:12px;">${escapeHtml(l.rangeText||'')}</td>
       <td>${escapeHtml(l.method||'')}</td>
-      <td class="mono flag-${(l.flag||'').replace(' ','')}">${l.value} ${l.unit||''} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</td>
-      <td class="muted" style="font-size:12px;">${l.rangeText||''}<br>Specimen ${escapeHtml(l.specimenNumber||'—')} · ${escapeHtml(l.performingFacility||'')}${l.referred?' · Referred':''}<br>Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}
-      ${l.criticalNotifiedTo? `<br><span style="color:var(--crimson);font-weight:700;">⚠ Notified: ${escapeHtml(l.criticalNotifiedTo)}, ${fmtDate(l.criticalNotifiedAt)}</span>`:''}</td>
     </tr>`;
-  }).join('');
+  };
+  const renderSheet = sheet => `
+      <div class="report-sheet" style="margin-bottom:16px;">
+        <div class="report-letterhead">
+          <div><h1>${escapeHtml(sheet.facility.name)}</h1><div class="tag">Standard Laboratory Report</div></div>
+          <div style="text-align:right;"><div class="mono">${escapeHtml(order.memoNumber||order.id)}</div><div class="muted" style="font-size:11.5px;">${fmtDate(order.createdAt)}</div></div>
+        </div>
+        <div class="report-meta">
+          <div><span>Patient: </span><b>${escapeHtml(patient.name)}</b></div>
+          <div><span>Hospital No. / ID No.: </span><span class="mono">${escapeHtml(patient.hospitalNumber||'—')} / ${escapeHtml(patient.idNumber||'—')}</span></div>
+          <div><span>DOB / Age / Sex: </span>${escapeHtml(patient.dob)} / ${calcAge(patient.dob)}y / ${escapeHtml(patient.sex)}</div>
+          <div><span>Address: </span>${escapeHtml(patient.address||'—')}</div>
+          <div><span>Ordering Clinician: </span>${escapeHtml(order.orderedBy)}</div>
+          <div><span>Patient Type: </span>${patientType==='inpatient'? `In-Patient${wardName?' — '+escapeHtml(wardName):''}` : patientType==='outpatient'? 'Out-Patient' : '—'}</div>
+          <div><span>Memo: </span>${escapeHtml(order.memoNumber)}</div>
+          ${sheet.isOrderingFacility? '' : `<div><span>Referred from: </span>${escapeHtml(facility.name)}</div>`}
+          <div style="grid-column:1/-1;"><span>Specimens: </span>${(sheet.specimens||[]).map(s=>`<span class="mono">${escapeHtml(s.specimenNumber)}</span> (${escapeHtml(s.bottleType)})`).join(', ')||'—'}</div>
+        </div>
+        <table><thead><tr><th>Test</th><th>Result</th><th>Reference Range</th><th>Method</th></tr></thead>
+        <tbody>${sheet.lines.map(renderLine).join('')}</tbody></table>
+      </div>`;
   return `
-    <div class="report-sheet" id="printArea">
-      <div class="report-letterhead">
-        <div><h1>${escapeHtml(facility.name)}</h1><div class="tag">Standard Laboratory Report</div></div>
-        <div style="text-align:right;"><div class="mono">${escapeHtml(order.memoNumber||order.id)}</div><div class="muted" style="font-size:11.5px;">${fmtDate(order.createdAt)}</div></div>
-      </div>
-      <div class="report-meta">
-        <div><span>Patient: </span><b>${escapeHtml(patient.name)}</b></div>
-        <div><span>Hospital No. / ID No.: </span><span class="mono">${escapeHtml(patient.hospitalNumber||'—')} / ${escapeHtml(patient.idNumber||'—')}</span></div>
-        <div><span>DOB / Age / Sex: </span>${patient.dob} / ${calcAge(patient.dob)}y / ${patient.sex}</div>
-        <div><span>Address: </span>${escapeHtml(patient.address||'—')}</div>
-        <div><span>Ordering Clinician: </span>${escapeHtml(order.orderedBy)}</div>
-        <div><span>Patient Type: </span>${patientType==='inpatient'? `In-Patient${wardName?' — '+escapeHtml(wardName):''}` : patientType==='outpatient'? 'Out-Patient' : '—'}</div>
-        <div><span>Memo: </span>${escapeHtml(order.memoNumber)}</div>
-        <div style="grid-column:1/-1;"><span>Specimens: </span>${(report.specimens||[]).map(s=>`<span class="mono">${escapeHtml(s.specimenNumber)}</span> (${escapeHtml(s.bottleType)})`).join(', ')||'—'}</div>
-      </div>
-      <table><thead><tr><th>Test</th><th>Code</th><th>Method</th><th>Result</th><th>Reference Range / Source</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-      <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Report</button><button class="btn btn-outline" onclick="selectedReportOrder=null;render();">Close</button></div>
-    </div>`;
+    <div id="printArea">${sheets.map(renderSheet).join('')}</div>
+    <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Report${sheets.length>1?` (${sheets.length} sheets)`:''}</button><button class="btn btn-outline" onclick="selectedReportOrder=null;render();">Close</button></div>`;
 }
 
 /* ============================= PATIENT HISTORY ============================= */

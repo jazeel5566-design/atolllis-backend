@@ -52,6 +52,9 @@ router.get('/', async (req, res) => {
     analyser_queue: o => o.tests.some(t => t.performingFacilityId === fid && ['received', 'processing'].includes(t.status)),
     validation_queue: o => o.tests.some(t => t.performingFacilityId === fid && ['received', 'interfaced'].includes(t.status)),
     reportable: o => o.viewerIsOrigin && !!o.sampleStatus,
+    // The Reports page: everything this facility ordered, plus orders where it is the reference
+    // lab and has actually taken the referred sample in (o.tests is already limited to its tests).
+    report_list: o => !!o.sampleStatus && (o.viewerIsOrigin || o.tests.some(t => !['awaiting_receipt', 'rejected'].includes(t.status))),
   };
   if (stage && stageFilters[stage]) mapped = mapped.filter(stageFilters[stage]);
 
