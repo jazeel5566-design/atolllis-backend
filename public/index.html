@@ -333,7 +333,10 @@ const api = {
   getSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}`),
   loadSpecimenAnalyser: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/load-analyser`, {method:'POST'}),
   acceptSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/accept`, {method:'POST'}),
-  rejectSpecimen: (specimenNumber, reason) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject`, {method:'POST', body:{reason}}),
+  rejectSpecimen: (specimenNumber, reasonId, note) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject`, {method:'POST', body:{reasonId, note}}),
+  receiveReferredSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/receive-referral`, {method:'POST'}),
+  rejectReferredSpecimen: (specimenNumber, reasonId, note) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject-referral`, {method:'POST', body:{reasonId, note}}),
+  rejections: (params) => apiRequest(`/specimens/rejections${params?('?'+params):''}`),
   analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
   certify: (orderId, code, criticalNotifiedTo) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST', body:{criticalNotifiedTo}}),
@@ -1180,18 +1183,27 @@ async function referOrder(orderId){
 let acceptanceTab = 'pending';
 let acceptanceScanResult = null;
 
+// Rejection log period — defaults to the last 30 days; both ends are plain YYYY-MM-DD strings.
+function localDateStr(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+let rejectionLogTo = localDateStr(new Date());
+let rejectionLogFrom = localDateStr(new Date(Date.now() - 29*24*60*60*1000));
+function rejectionLogParams(){
+  const params = new URLSearchParams();
+  if(rejectionLogFrom) params.set('from', new Date(rejectionLogFrom+'T00:00:00').toISOString());
+  if(rejectionLogTo) params.set('to', new Date(rejectionLogTo+'T23:59:59.999').toISOString());
+  return params.toString();
+}
+
 async function viewAcceptancePage(){
   const f = fac(session.user.facilityId);
-  const [pendingRaw, rejectedOrders] = await Promise.all([api.orders('pending_acceptance'), api.orders('rejected')]);
-  const rejectedSpecimens = [];
-  rejectedOrders.forEach(o => (o.specimens||[]).filter(s=>s.status==='rejected').forEach(s => rejectedSpecimens.push({o, s})));
+  const [pendingRaw, rejectedSpecimens] = await Promise.all([api.orders('pending_acceptance'), api.rejections(rejectionLogParams())]);
   return `
     <div class="pagehead"><h1>Sample Acceptance</h1><p>${escapeHtml(f.name)} — accept or reject each specimen individually.</p></div>
     <div class="tabs">
       <div class="tab ${acceptanceTab==='pending'?'active':''}" onclick="acceptanceTab='pending';worklistSearch='';acceptanceScanResult=null;render();">Awaiting Acceptance (${pendingRaw.length})</div>
       <div class="tab ${acceptanceTab==='rejected'?'active':''}" onclick="acceptanceTab='rejected';worklistSearch='';render();">Sample Rejection Log (${rejectedSpecimens.length})</div>
     </div>
-    ${acceptanceTab==='pending' ? renderAcceptanceTab(pendingRaw, f) : renderRejectedLog(rejectedSpecimens)}
+    ${acceptanceTab==='pending' ? renderAcceptanceTab(pendingRaw, f) : renderRejectedLog(rejectedSpecimens, f)}
   `;
 }
 // Acceptance is per specimen (per tube, per category) — scan-first, same pattern as Analyser Processing.
@@ -1251,19 +1263,46 @@ function renderAcceptancePanel(s){
       : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}.</p>`}
   </div>`;
 }
-function renderRejectedLog(rejectedSpecimens){
-  if(!rejectedSpecimens.length) return `<div class="card empty"><div class="big">🚫</div>No rejected specimens on record.</div>`;
-  return rejectedSpecimens.map(({o,s})=>{
-    const p = o.patient;
+function renderRejectedLog(rejections, f){
+  const periodCard = `<div class="card">
+    <div class="grid grid-4">
+      <div class="field" style="margin-bottom:0;"><label>From</label>
+        <input type="date" value="${rejectionLogFrom}" onchange="rejectionLogFrom=this.value;render();"></div>
+      <div class="field" style="margin-bottom:0;"><label>To</label>
+        <input type="date" value="${rejectionLogTo}" onchange="rejectionLogTo=this.value;render();"></div>
+    </div>
+  </div>`;
+  if(!rejections.length) return periodCard + `<div class="card empty"><div class="big">🚫</div>No rejected specimens in this period.</div>`;
+
+  // Summary: one row per reason, one column per category, counted over the period shown.
+  const categories = [...new Set(rejections.map(r=>r.category))].sort();
+  const counts = {}; // reasonName -> { category -> n }
+  rejections.forEach(r=>{ (counts[r.reasonName] = counts[r.reasonName] || {})[r.category] = (counts[r.reasonName][r.category]||0) + 1; });
+  const rowTotal = name => categories.reduce((n,c)=>n+(counts[name][c]||0), 0);
+  const reasonNames = Object.keys(counts).sort((x,y)=>rowTotal(y)-rowTotal(x) || x.localeCompare(y));
+  const summaryCard = `<div class="card" style="padding:0;overflow-x:auto;">
+    <table><thead><tr><th>Reason</th>${categories.map(c=>`<th>${escapeHtml(c)}</th>`).join('')}<th>Total</th></tr></thead>
+    <tbody>
+      ${reasonNames.map(name=>`<tr><td>${escapeHtml(name)}</td>${categories.map(c=>`<td>${counts[name][c]||'—'}</td>`).join('')}<td><b>${rowTotal(name)}</b></td></tr>`).join('')}
+      <tr><td><b>Total</b></td>${categories.map(c=>`<td><b>${rejections.filter(r=>r.category===c).length}</b></td>`).join('')}<td><b>${rejections.length}</b></td></tr>
+    </tbody></table>
+  </div>`;
+
+  const rows = rejections.map(r=>{
+    const elsewhere = r.facilityId !== f.id;           // rejected by a receiving lab, on our specimen
+    const notOurs = r.orderingFacilityId !== f.id;     // we rejected it as the receiving lab
     return `<div class="order-card">
       <div class="order-card-head">
-        <div><span class="order-id">${escapeHtml(s.specimenNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>
-          <div class="muted" style="font-size:11.5px;">${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)} · Memo ${escapeHtml(o.memoNumber)}</div>
+        <div><span class="order-id">${escapeHtml(r.specimenNumber)}</span> — ${escapeHtml(r.patient?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(r.patient?.hospitalNumber||'—')})</span>
+          <div class="muted" style="font-size:11.5px;">${escapeHtml(r.category)} · ${escapeHtml(r.bottleType)} · Memo ${escapeHtml(r.memoNumber)}${notOurs?` · Referred from ${escapeHtml(r.orderingFacilityName)}`:''}</div>
+          <div class="muted" style="font-size:11.5px;">Rejected ${fmtDate(r.rejectedAt)} by ${escapeHtml(r.rejectedBy||'—')}${elsewhere?` at ${escapeHtml(r.facilityName)} (receiving lab)`:''}</div>
+          ${r.note?`<div style="font-size:12.5px;margin-top:4px;">${escapeHtml(r.note)}</div>`:''}
         </div>
-        <span class="pill pill-crimson">Rejected: ${escapeHtml(s.rejectionReason||'Not specified')}</span>
+        <span class="pill pill-crimson">Rejected: ${escapeHtml(r.reasonName)}</span>
       </div>
     </div>`;
   }).join('');
+  return periodCard + summaryCard + rows;
 }
 async function scanSpecimenForAcceptance(){
   const el = document.getElementById('acceptScanField');
@@ -1290,34 +1329,45 @@ async function acceptAllSpecimens(specimenNumbers){
   });
 }
 let rejectModalSpecimenNumber = null;
-async function rejectSpecimen(specimenNumber){
+let rejectModalMode = 'acceptance'; // 'acceptance' (ordering lab) | 'referral' (receiving lab, referred specimen)
+async function rejectSpecimen(specimenNumber, mode){
   rejectModalSpecimenNumber = specimenNumber;
+  rejectModalMode = mode || 'acceptance';
   let reasons = [];
-  try{ reasons = await api.rejectionReasons(); }catch(e){ /* fall through with empty list */ }
+  try{ reasons = await api.rejectionReasons(); }catch(e){ /* fall through with only "Other" */ }
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
     <div class="modal" style="max-width:420px;">
-      <div class="modal-head"><h2>Reject Specimen</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-head"><h2>Reject Specimen <span class="mono muted" style="font-weight:400;font-size:13px;">${escapeHtml(specimenNumber)}</span></h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Reason</label>
-        <select id="reject_reason" onchange="document.getElementById('reject_other_wrap').style.display=this.value==='__other__'?'block':'none';">
-          ${reasons.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('')}
-          <option value="__other__">Other — specify below</option>
+        <select id="reject_reason" onchange="syncRejectNoteField()">
+          ${reasons.map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+          <option value="other">Other — explain below</option>
         </select>
       </div>
-      <div class="field" id="reject_other_wrap" style="${reasons.length?'display:none;':''}"><label>Specify</label><input id="reject_other" placeholder="e.g. leaking in transit"></div>
+      <div class="field"><label id="reject_note_label"></label><input id="reject_note" placeholder="e.g. leaking in transit"></div>
       <div class="actions-row"><button class="btn btn-danger" onclick="confirmRejectSpecimen()">Reject Specimen</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
     </div>
   </div>`;
+  syncRejectNoteField();
+}
+function syncRejectNoteField(){
+  const isOther = document.getElementById('reject_reason').value==='other';
+  document.getElementById('reject_note_label').textContent = isOther ? 'Explanation (required)' : 'Additional note (optional)';
 }
 async function confirmRejectSpecimen(){
-  const sel = document.getElementById('reject_reason').value;
-  const reason = sel==='__other__' ? (document.getElementById('reject_other').value||'').trim() : sel;
-  if(!reason){ showToast('Enter or select a reason.'); return; }
+  const reasonId = document.getElementById('reject_reason').value;
+  const note = (document.getElementById('reject_note').value||'').trim();
+  if(reasonId==='other' && !note){ showToast('Enter an explanation for "Other".'); return; }
   await withErrorToast(async ()=>{
-    acceptanceScanResult = await api.rejectSpecimen(rejectModalSpecimenNumber, reason);
+    if(rejectModalMode==='referral'){
+      await api.rejectReferredSpecimen(rejectModalSpecimenNumber, reasonId, note);
+    }else{
+      acceptanceScanResult = await api.rejectSpecimen(rejectModalSpecimenNumber, reasonId, note);
+    }
     closeModal();
     await render();
-    showToast('Specimen rejected.');
+    showToast(rejectModalMode==='referral' ? 'Referred specimen rejected — returned to the ordering facility for recollection.' : 'Specimen rejected.');
   });
 }
 
@@ -1697,13 +1747,24 @@ function renderIncomingTab(orders, f){
         </div>
         <span class="pill pill-purple">Referred — same order, no duplicate</span>
       </div>
-      <div class="actions-row"><button class="btn btn-sm" onclick="receiveReferral('${o.id}')">Receive Sample at ${escapeHtml(f.name)}</button></div>
-      ${referredTests.map(t=>{
-        const spec = (o.specimens||[]).find(s=>s.id===t.specimenId);
-        return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span> ${spec?`<span class="mono muted" style="font-size:11px;">${escapeHtml(spec.specimenNumber)}</span>`:''}</span><span class="pill pill-purple">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
-      }).join('')}
+      <div class="actions-row"><button class="btn btn-sm" onclick="receiveReferral('${o.id}')">Receive All at ${escapeHtml(f.name)}</button></div>
+      ${(o.specimens||[]).filter(s=>referredTests.some(t=>t.specimenId===s.id)).map(s=>`<div class="test-row">
+        <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span>
+          <div class="muted" style="font-size:11.5px;">${referredTests.filter(t=>t.specimenId===s.id).map(t=>`${escapeHtml(t.name)} (${escapeHtml(t.code)})`).join(', ')}</div></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-teal btn-sm" onclick="receiveReferredSpecimen('${s.specimenNumber}')">Receive</button>
+          ${hasCapability('accept')? `<button class="btn btn-danger btn-sm" onclick="rejectSpecimen('${s.specimenNumber}','referral')">Reject</button>`:''}
+        </div>
+      </div>`).join('')}
     </div>`;
   }).join('');
+}
+async function receiveReferredSpecimen(specimenNumber){
+  await withErrorToast(async ()=>{
+    await api.receiveReferredSpecimen(specimenNumber);
+    await render();
+    showToast('Referred specimen received into this lab.');
+  });
 }
 async function receiveReferral(orderId){
   await withErrorToast(async ()=>{
@@ -2013,6 +2074,7 @@ async function viewAuditLog(){
     login:'Login', memo_imported:'Memo Fetched', memo_cancelled:'Memo Cancelled', collect:'Sample Collected',
     recollect:'Sample Recollected', refer:'Referred', receive_referral:'Referral Received',
     load_analyser:'Loaded to Analyser', accept:'Specimen Accepted', reject:'Specimen Rejected',
+    reject_referral:'Referred Specimen Rejected', rejection_reason_created:'Rejection Reason Added', rejection_reason_deleted:'Rejection Reason Removed',
     analyser_result:'Analyser Result', manual_result:'Manual Result', certify:'Certified',
     user_created:'User Created', user_updated:'User Updated', user_removed:'User Removed',
     facility_access_granted:'Facility Access Granted', facility_access_revoked:'Facility Access Revoked',
@@ -2677,12 +2739,12 @@ async function viewRejectionReasons(){
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
-      <div><h1>Rejection Reasons</h1><p>The standard list offered when rejecting a specimen at Sample Acceptance — keeps wording consistent across every facility, and makes rejection patterns reportable.</p></div>
+      <div><h1>Rejection Reasons</h1><p>The standard list offered when rejecting a specimen, at Sample Acceptance or on arrival at a receiving lab — keeps wording consistent across every facility, and makes rejection patterns reportable.</p></div>
       <button class="btn" onclick="openRejectionReasonModal()">+ New Reason</button>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Reason</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="2" class="empty">No reasons defined yet — rejection will fall back to free text until at least one exists.</td></tr>`}</tbody></table>
+      <tbody>${rows || `<tr><td colspan="2" class="empty">No reasons defined yet — only "Other" (with a required explanation) is offered until at least one exists.</td></tr>`}</tbody></table>
     </div>
   `;
 }

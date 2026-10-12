@@ -52,6 +52,7 @@ model Ward {
   facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   name       String
   createdAt  DateTime @default(now())
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 
   orders Order[]
 
@@ -140,6 +141,7 @@ model TestDefinition {
   comment      String?
   isCulture    Boolean @default(false) // true = enters via the structured culture/sensitivity UI, not a plain value
   isStat       Boolean @default(false) // true = this test can be marked STAT at collection; others can't, even if requested
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 
   refRanges ReferenceRange[]
 
@@ -165,6 +167,7 @@ model TestPanel {
   name      String   @unique
   testCodes String   // JSON-encoded array of test codes
   createdAt DateTime @default(now())
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 }
 
 // A standardized list of specimen rejection reasons, so rejecting a specimen is a pick from a
@@ -174,6 +177,7 @@ model RejectionReason {
   id        String   @id
   name      String   @unique
   createdAt DateTime @default(now())
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 }
 
 // "If [triggerTestCode] is [condition] [thresholdValue], suggest adding [resultTestCode]." Never
@@ -305,7 +309,28 @@ model Specimen {
   rejectionReason String?
   createdAt      DateTime  @default(now())
 
-  tests OrderTest[]
+  tests      OrderTest[]
+  rejections SpecimenRejection[]
+}
+
+// One row per rejection decision on a tube. Separate from Specimen because the same tube can be
+// judged by more than one lab: the ordering facility at Sample Acceptance, and — for referred
+// tests — the receiving lab on arrival. reasonId points at RejectionReason (null = "Other", in
+// which case note is required); reasonName/facilityName/category are snapshotted at write time so
+// the log and the summary counts still read correctly if a reason or facility is later renamed
+// or removed.
+model SpecimenRejection {
+  id           String   @id
+  specimenId   String
+  specimen     Specimen @relation(fields: [specimenId], references: [id], onDelete: Cascade)
+  facilityId   String   // the lab that rejected it
+  facilityName String
+  reasonId     String?
+  reasonName   String
+  note         String?
+  category     String
+  rejectedBy   String
+  rejectedAt   DateTime @default(now())
 }
 
 model OrderTest {
@@ -348,6 +373,7 @@ model Organism {
   id    String @id
   name  String @unique
   group String? // e.g. "GNB (gram negative bacilli)" — informational grouping only
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 
   antibioticPanel OrganismAntibioticPanel[]
   findings        OrganismFinding[]
@@ -356,6 +382,7 @@ model Organism {
 model Antibiotic {
   id   String @id
   name String @unique
+  active    Boolean  @default(true) // present in the live database; kept in the schema so db push never drops it
 
   organismPanel OrganismAntibioticPanel[]
   sensitivities AntibioticSensitivity[]
