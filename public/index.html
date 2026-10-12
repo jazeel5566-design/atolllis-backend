@@ -468,7 +468,7 @@ async function renderLoginScreen(){
       </div>
       ${!backendOk? `<p style="color:var(--crimson);font-size:12px;">${escapeHtml(loadError)}</p><button class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="renderLoginScreen()">Retry Connection</button>` : ''}
       <div class="grid grid-2">
-        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. anazima" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
+        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. anazima" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('login_pass').focus();}"></div>
         <div class="field"><label>Password</label><input id="login_pass" type="password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
       </div>
       <button class="btn" style="width:100%;" onclick="doLogin()">Log In</button>
