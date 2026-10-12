@@ -357,11 +357,32 @@ model OrderTest {
   validatedBy    String?
   validatedAt    DateTime?
   referredByName String?
+  criticalFlag       String?   // 'CriticalLow' | 'CriticalHigh' — snapshot taken when the result was entered; null = not critical (or entered before this was tracked)
   criticalNotifiedTo String?   // who was called/told, for a critical (panic) value — required before certify
-  criticalNotifiedAt DateTime?
+  criticalNotifiedAt DateTime? // set by the first SUCCESSFUL CriticalNotification; the escalation clock runs from enteredAt until this
   isStat             Boolean   @default(false) // set at collect time; only possible if the catalog test itself is STAT-eligible
 
-  cultureResult CultureResult?
+  cultureResult         CultureResult?
+  criticalNotifications CriticalNotification[]
+}
+
+// One row per attempt to tell someone about a critical (panic) value — including the attempts that
+// didn't get through, so there is a trail of every try and not just the one that worked.
+// facilityName is snapshotted the same way the audit log does it.
+model CriticalNotification {
+  id           String    @id
+  orderTestId  String
+  orderTest    OrderTest @relation(fields: [orderTestId], references: [id], onDelete: Cascade)
+  facilityId   String    // the lab that made the call (always the performing lab)
+  facilityName String
+  personName   String    // who was called
+  personRole   String?   // e.g. "Ordering clinician", "Ward nurse"
+  method       String    // 'phone' | 'in_person'
+  outcome      String    // 'reached' | 'not_reached'
+  readBack     Boolean   @default(false) // the person repeated the result back correctly
+  note         String?
+  recordedBy   String
+  createdAt    DateTime  @default(now())
 }
 
 // ---------- Microbiology: organisms, antibiotics, and culture/sensitivity results ----------

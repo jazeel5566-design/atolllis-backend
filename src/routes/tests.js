@@ -3,9 +3,189 @@ const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { uid } = require('../utils/id');
-const { evalResult } = require('../utils/domain');
+const {
+  CRITICAL_OVERDUE_MINUTES, CRITICAL_ESCALATE_MINUTES, CRITICAL_FLAG_LABELS, criticalFlagFor, minutesSince, escalationLevel,
+} = require('../utils/critical');
 
 router.use(requireAuth);
+
+// ---------- Critical (panic) values ----------
+// The flag for a just-entered value, looked up against the catalog and this order's patient.
+async function criticalFlagForEntry(orderId, code, value) {
+  const [tc, order] = await Promise.all([
+    prisma.testDefinition.findUnique({ where: { code }, include: { refRanges: true } }),
+    prisma.order.findUnique({ where: { id: orderId }, include: { patient: true } }),
+  ]);
+  return criticalFlagFor(tc, order && order.patient, value);
+}
+
+// The stored snapshot wins; a result entered before the snapshot existed is evaluated on the spot.
+async function criticalFlagOf(t) {
+  return t.criticalFlag || criticalFlagForEntry(t.orderId, t.code, t.value);
+}
+
+async function canHandleCriticals(role) {
+  const match = await prisma.roleCapability.findFirst({ where: { role, capability: { in: ['process', 'certify'] } } });
+  return !!match;
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const describeAttempt = a => ({
+  personName: a.personName, personRole: a.personRole, method: a.method, outcome: a.outcome,
+  readBack: a.readBack, note: a.note, recordedBy: a.recordedBy, createdAt: a.createdAt,
+});
+
+// Critical results at this lab that nobody has been successfully told about yet, oldest first, each
+// with how long it has waited and its escalation level. The Regional administrator additionally
+// gets `escalated`: results past the second limit at any other lab — identified by lab, test and
+// memo only, never the value or the patient, since an uncertified result stays inside the lab
+// that produced it.
+router.get('/critical', async (req, res) => {
+  const fid = req.user.facilityId;
+  const now = new Date();
+  const limits = { overdueMinutes: CRITICAL_OVERDUE_MINUTES, escalateMinutes: CRITICAL_ESCALATE_MINUTES };
+
+  let items = [];
+  if (await canHandleCriticals(req.user.role)) {
+    const waiting = await prisma.orderTest.findMany({
+      where: { performingFacilityId: fid, status: 'interfaced', criticalNotifiedAt: null },
+      include: {
+        order: { include: { patient: true, orderingFacility: { select: { name: true } }, ward: true } },
+        specimen: true,
+        criticalNotifications: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { enteredAt: 'asc' },
+    });
+    const unflagged = waiting.filter(t => !t.criticalFlag);
+    const catalog = unflagged.length
+      ? await prisma.testDefinition.findMany({ where: { code: { in: unflagged.map(t => t.code) } }, include: { refRanges: true } })
+      : [];
+    items = waiting
+      .map(t => {
+        const flag = t.criticalFlag || criticalFlagFor(catalog.find(c => c.code === t.code), t.order.patient, t.value);
+        if (!flag) return null;
+        const minutes = minutesSince(t.enteredAt, now);
+        return {
+          orderId: t.orderId, code: t.code, name: t.name, value: t.value, unit: t.unit,
+          flag, flagLabel: CRITICAL_FLAG_LABELS[flag],
+          enteredAt: t.enteredAt, enteredBy: t.enteredBy, minutes, level: escalationLevel(minutes),
+          memoNumber: t.order.memoNumber, orderedBy: t.order.orderedBy,
+          specimenNumber: t.specimen ? t.specimen.specimenNumber : null,
+          referred: t.referred, orderingFacilityName: t.order.orderingFacility.name,
+          patientType: t.order.patientType, wardName: t.order.ward ? t.order.ward.name : null,
+          patient: { name: t.order.patient.name, hospitalNumber: t.order.patient.hospitalNumber },
+          attempts: t.criticalNotifications.map(describeAttempt),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  let escalated = [];
+  if (req.user.role === 'admin' && req.user.tier === 'regional') {
+    const cutoff = new Date(now.getTime() - CRITICAL_ESCALATE_MINUTES * 60000);
+    const late = await prisma.orderTest.findMany({
+      where: {
+        status: 'interfaced', criticalFlag: { not: null }, criticalNotifiedAt: null,
+        enteredAt: { lte: cutoff }, performingFacilityId: { not: fid },
+      },
+      include: { order: { select: { memoNumber: true } }, specimen: true, performingFacility: { select: { name: true } }, criticalNotifications: true },
+      orderBy: { enteredAt: 'asc' },
+    });
+    escalated = late.map(t => ({
+      facilityName: t.performingFacility.name, code: t.code, name: t.name,
+      flag: t.criticalFlag, flagLabel: CRITICAL_FLAG_LABELS[t.criticalFlag] || 'CRITICAL',
+      memoNumber: t.order.memoNumber, specimenNumber: t.specimen ? t.specimen.specimenNumber : null,
+      enteredAt: t.enteredAt, minutes: minutesSince(t.enteredAt, now), attempts: t.criticalNotifications.length,
+    }));
+  }
+
+  res.json({ ...limits, items, escalated });
+});
+
+// Critical value log for this lab: every critical result it produced in the period, how long the
+// notification took, and each attempt made. Optional ?from=&to= (ISO timestamps) on enteredAt.
+router.get('/critical-log', async (req, res) => {
+  if (!(await canHandleCriticals(req.user.role))) return res.json([]);
+  const from = parseDate(req.query.from);
+  const to = parseDate(req.query.to);
+  const now = new Date();
+
+  const tests = await prisma.orderTest.findMany({
+    where: {
+      performingFacilityId: req.user.facilityId,
+      status: { in: ['interfaced', 'completed'] },
+      OR: [{ criticalFlag: { not: null } }, { criticalNotifiedAt: { not: null } }],
+      ...(from || to ? { enteredAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    },
+    include: { order: { include: { patient: true } }, specimen: true, criticalNotifications: { orderBy: { createdAt: 'asc' } } },
+    orderBy: { enteredAt: 'desc' },
+  });
+
+  res.json(tests.map(t => {
+    const notified = !!t.criticalNotifiedAt;
+    const minutes = notified ? minutesSince(t.enteredAt, t.criticalNotifiedAt) : minutesSince(t.enteredAt, now);
+    return {
+      orderId: t.orderId, code: t.code, name: t.name, value: t.value, unit: t.unit,
+      flag: t.criticalFlag, flagLabel: CRITICAL_FLAG_LABELS[t.criticalFlag] || 'CRITICAL',
+      enteredAt: t.enteredAt, enteredBy: t.enteredBy,
+      memoNumber: t.order.memoNumber, specimenNumber: t.specimen ? t.specimen.specimenNumber : null,
+      patient: { name: t.order.patient.name, hospitalNumber: t.order.patient.hospitalNumber },
+      notified, notifiedTo: t.criticalNotifiedTo, notifiedAt: t.criticalNotifiedAt,
+      minutes, onTime: notified && minutes < CRITICAL_OVERDUE_MINUTES,
+      attempts: t.criticalNotifications.map(describeAttempt),
+    };
+  }));
+});
+
+// Record one attempt to notify someone of a critical value — made by the lab that produced the
+// result. A 'reached' attempt is what stops the escalation clock and unlocks certification;
+// 'not_reached' just adds to the trail.
+router.post('/:orderId/:code/critical-notification', requireCapability('process'), async (req, res) => {
+  const { orderId, code } = req.params;
+  const body = req.body || {};
+  const personName = (body.personName || '').trim();
+  const personRole = (body.personRole || '').trim() || null;
+  const note = (body.note || '').trim() || null;
+  if (!personName) return res.status(400).json({ error: 'personName is required — who was called?' });
+  if (!['phone', 'in_person'].includes(body.method)) return res.status(400).json({ error: 'method must be phone or in_person' });
+  if (!['reached', 'not_reached'].includes(body.outcome)) return res.status(400).json({ error: 'outcome must be reached or not_reached' });
+  const reached = body.outcome === 'reached';
+
+  const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
+  if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
+  if (t.status !== 'interfaced') return res.status(409).json({ error: `Test is not awaiting validation (status: ${t.status})` });
+  if (t.criticalNotifiedAt) return res.status(409).json({ error: `Already notified: ${t.criticalNotifiedTo}` });
+  const flag = await criticalFlagOf(t);
+  if (!flag) return res.status(409).json({ error: 'This result is not a critical value' });
+
+  const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId }, select: { name: true } });
+  const attempt = await prisma.criticalNotification.create({
+    data: {
+      id: uid('CRN'), orderTestId: t.id,
+      facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+      personName, personRole, method: body.method, outcome: body.outcome,
+      readBack: reached && !!body.readBack, note, recordedBy: req.user.name,
+    },
+  });
+  const who = personRole ? `${personName} (${personRole})` : personName;
+  let updated = t;
+  if (reached) {
+    updated = await prisma.orderTest.update({
+      where: { id: t.id },
+      data: { criticalFlag: flag, criticalNotifiedTo: who, criticalNotifiedAt: attempt.createdAt },
+    });
+  }
+  await logAudit(req.user, {
+    action: reached ? 'critical_notified' : 'critical_attempt_failed', entityType: 'OrderTest', entityId: t.id,
+    details: `${code}: ${t.value} ${CRITICAL_FLAG_LABELS[flag]} — ${reached ? 'notified' : 'could not reach'} ${who} after ${minutesSince(t.enteredAt, attempt.createdAt)} min`,
+  });
+  res.status(201).json({ ...updated, attempt: describeAttempt(attempt) });
+});
 
 // Simulated bidirectional interface: the LIS only accepts a result from the analyser if its unit
 // matches the unit defined for that test in the catalog.
@@ -24,9 +204,11 @@ router.post('/:orderId/:code/analyser-result', requireCapability('process'), asy
     return res.status(422).json({ error: `Unit mismatch: analyser sent "${unit}", LIS expects "${tc.units}". Result not accepted.` });
   }
 
+  // A critical value is flagged the moment it's entered — that's when the notification clock starts.
+  const criticalFlag = await criticalFlagForEntry(orderId, code, value);
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: { value: String(value), unit, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
+    data: { value: String(value), unit, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name, criticalFlag },
   });
   await logAudit(req.user, { action: 'analyser_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} ${unit} (from analyser)` });
   res.json(updated);
@@ -43,9 +225,10 @@ router.post('/:orderId/:code/manual-result', requireCapability('process'), async
   if (t.status !== 'received') return res.status(409).json({ error: `Test is not awaiting manual entry (status: ${t.status})` });
 
   const tc = await prisma.testDefinition.findUnique({ where: { code } });
+  const criticalFlag = await criticalFlagForEntry(orderId, code, value);
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
+    data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name, criticalFlag },
   });
   await logAudit(req.user, { action: 'manual_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} (manual entry)` });
   res.json(updated);
@@ -115,31 +298,24 @@ router.post('/:orderId/:code/culture-result', requireCapability('process'), asyn
 // Validate & certify — done only by the facility that actually performed the test.
 router.post('/:orderId/:code/certify', requireCapability('certify'), async (req, res) => {
   const { orderId, code } = req.params;
-  const { criticalNotifiedTo } = req.body || {};
   const validatedBy = req.user.name; // the certifying pathologist/lab manager — not client-supplied
 
   const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
   if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
   if (t.status !== 'interfaced') return res.status(409).json({ error: `Test is not awaiting validation (status: ${t.status})` });
 
-  // A critical (panic) value cannot be certified until whoever entered/validated it confirms the
-  // ordering clinician was actually told — this is a real patient-safety requirement, not paperwork.
-  const tc = await prisma.testDefinition.findUnique({ where: { code }, include: { refRanges: true } });
-  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { patient: true } });
-  const info = tc && order ? evalResult(tc, order.patient, t.value) : { flag: 'N/A' };
-  const isCritical = info.flag === 'CriticalLow' || info.flag === 'CriticalHigh';
-  if (isCritical && !criticalNotifiedTo) {
-    return res.status(400).json({ error: 'This is a critical value — enter who was notified before certifying.', requiresCriticalNotification: true, flag: info.flag, flagLabel: info.flagLabel });
+  // A critical (panic) value cannot be certified until a successful notification has been recorded
+  // (POST .../critical-notification) — this is a real patient-safety requirement, not paperwork.
+  const criticalFlag = await criticalFlagOf(t);
+  if (criticalFlag && !t.criticalNotifiedAt) {
+    return res.status(400).json({ error: 'This is a critical value — record who was notified before certifying.', requiresCriticalNotification: true, flag: criticalFlag, flagLabel: CRITICAL_FLAG_LABELS[criticalFlag] });
   }
 
   const updated = await prisma.orderTest.update({
     where: { id: t.id },
-    data: {
-      status: 'completed', validatedBy, validatedAt: new Date(),
-      ...(isCritical ? { criticalNotifiedTo, criticalNotifiedAt: new Date() } : {}),
-    },
+    data: { status: 'completed', validatedBy, validatedAt: new Date() },
   });
-  await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified${isCritical ? ` (critical value, notified ${criticalNotifiedTo})` : ''}` });
+  await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified${criticalFlag ? ` (critical value, notified ${t.criticalNotifiedTo})` : ''}` });
 
   // Reflex suggestions — never auto-ordered. Just surfaced here for the certifying staff to act
   // on with one click if they agree; adding one still requires a real specimen draw afterward,

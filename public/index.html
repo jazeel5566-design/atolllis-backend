@@ -339,7 +339,10 @@ const api = {
   rejections: (params) => apiRequest(`/specimens/rejections${params?('?'+params):''}`),
   analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
-  certify: (orderId, code, criticalNotifiedTo) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST', body:{criticalNotifiedTo}}),
+  certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
+  criticalWorklist: () => apiRequest('/tests/critical'),
+  criticalLog: (params) => apiRequest(`/tests/critical-log${params?('?'+params):''}`),
+  recordCriticalNotification: (orderId, code, data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/critical-notification`, {method:'POST', body:data}),
   addReflexTest: (orderId, code) => apiRequest(`/tests/${orderId}/add-reflex-test`, {method:'POST', body:{code}}),
   testAliases: () => apiRequest('/test-aliases'),
   createTestAlias: (data) => apiRequest('/test-aliases', {method:'POST', body:data}),
@@ -620,6 +623,9 @@ async function viewDashboard(){
     api.orders('pending_collection'), api.orders('referral_pending'), api.orders('pending_acceptance'),
     api.orders('incoming_referrals'), api.orders('analyser_queue'), api.orders('reportable'),
   ]);
+  let critical = {items:[], escalated:[]};
+  try{ critical = await api.criticalWorklist(); }catch(e){ /* dashboard still renders without it */ }
+  const criticalOverdue = critical.items.filter(c=>c.level!=='pending').length;
   const awaitingCollect = pendingCollection.length;
   const awaitingReferAction = referralPending.length;
   const awaitingAccept = pendingAcceptance.length;
@@ -631,6 +637,20 @@ async function viewDashboard(){
 
   return `
     <div class="pagehead"><h1>Dashboard</h1><p>Live snapshot for ${escapeHtml(f.name)}.</p></div>
+    ${critical.items.length? `<div class="card" style="border:1.5px solid var(--crimson);background:var(--crimson-bg);">
+      <h2 style="color:var(--crimson);">⚠ ${critical.items.length} critical value${critical.items.length===1?'':'s'} awaiting notification</h2>
+      <p style="margin-top:-6px;font-size:13px;">${criticalOverdue? `<b>${criticalOverdue} overdue</b> — waiting more than ${critical.overdueMinutes} minutes.${hasCapability('certify')?' Senior staff action needed.':''}` : `Notify the clinician within ${critical.overdueMinutes} minutes of the result.`}</p>
+      <button class="btn btn-sm" onclick="goToProcessing('critical')">Open Critical Values →</button>
+    </div>`:''}
+    ${critical.escalated.length? `<div class="card" style="border:1.5px solid var(--crimson);">
+      <h2 style="color:var(--crimson);">⚠ Escalated to Regional — ${critical.escalated.length} critical value${critical.escalated.length===1?'':'s'} un-notified for over ${critical.escalateMinutes} minutes</h2>
+      <p class="muted" style="margin-top:-6px;font-size:12.5px;">At other laboratories. Contact the lab — the result and patient stay with the performing lab until certified.</p>
+      ${critical.escalated.map(c=>`<div class="test-row">
+        <div><b>${escapeHtml(c.facilityName)}</b> — ${escapeHtml(c.name)} <span class="mono muted">(${escapeHtml(c.code)})</span>
+          <div class="muted" style="font-size:11.5px;">Memo ${escapeHtml(c.memoNumber)}${c.specimenNumber?` · Specimen ${escapeHtml(c.specimenNumber)}`:''} · entered ${fmtDate(c.enteredAt)} · ${c.attempts} attempt${c.attempts===1?'':'s'} logged</div></div>
+        <div><span class="flag-${c.flag}">${escapeHtml(c.flagLabel)}</span> <span class="pill pill-crimson">${c.minutes} min</span></div>
+      </div>`).join('')}
+    </div>`:''}
     <div class="grid grid-4">
       <div class="card kpi"><div class="n">${awaitingCollect}</div><div class="l">Memos awaiting sample collection</div></div>
       <div class="card kpi"><div class="n">${awaitingAccept}</div><div class="l">Samples awaiting acceptance</div></div>
@@ -1377,17 +1397,21 @@ let processingTab = 'analyser';
 let analyserScanResult = null;
 async function viewProcessingPage(){
   const fid = session.user.facilityId, f = fac(fid);
-  const [allOrders, incomingQ] = await Promise.all([
+  const [allOrders, incomingQ, critical] = await Promise.all([
     api.orders(), api.orders('incoming_referrals'),
+    api.criticalWorklist().catch(()=>({items:[], escalated:[], overdueMinutes:30, escalateMinutes:60})),
   ]);
+  const criticalLog = processingTab==='critical' ? await api.criticalLog(criticalLogParams()).catch(()=>[]) : [];
   const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)));
   return `
     <div class="pagehead"><h1>Result Processing</h1><p>Analyser interface and validation for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
       <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';processingPatientTypeFilter='';processingStatOnly=false;render();">Analyser Processing (${analyserQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
+      <div class="tab ${processingTab==='critical'?'active':''}" onclick="processingTab='critical';worklistSearch='';render();" ${critical.items.length?'style="color:var(--crimson);font-weight:700;"':''}>${critical.items.length?'⚠ ':''}Critical Values (${critical.items.length})</div>
     </div>
     ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
+      : processingTab==='critical'? renderCriticalTab(critical, criticalLog)
       : renderIncomingTab(incomingQ, f)}
   `;
 }
@@ -1698,9 +1722,9 @@ async function certifyResult(orderId, code){
       result = await api.certify(orderId, code);
     }catch(e){
       if(e.data && e.data.requiresCriticalNotification){
-        const notifiedTo = prompt(`⚠ ${e.data.flagLabel} — this is a critical value. Who was notified (e.g. the ordering clinician)? Required before certifying.`);
-        if(!notifiedTo || !notifiedTo.trim()) return;
-        result = await api.certify(orderId, code, notifiedTo.trim());
+        // Certification resumes by itself once a successful notification has been recorded.
+        openCriticalNotificationModal(orderId, code, e.data.flagLabel, true);
+        return;
       }else{
         throw e;
       }
@@ -1733,6 +1757,134 @@ async function addReflexTest(orderId, code, btnEl){
     await api.addReflexTest(orderId, code);
     if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'Added ✓'; }
     showToast(`${code} added to the order — collect it like any other test.`);
+  });
+}
+/* ---------- Critical (panic) values: worklist, notification record, log ---------- */
+let criticalLogTo = localDateStr(new Date());
+let criticalLogFrom = localDateStr(new Date(Date.now() - 29*24*60*60*1000));
+function criticalLogParams(){
+  const params = new URLSearchParams();
+  if(criticalLogFrom) params.set('from', new Date(criticalLogFrom+'T00:00:00').toISOString());
+  if(criticalLogTo) params.set('to', new Date(criticalLogTo+'T23:59:59.999').toISOString());
+  return params.toString();
+}
+const CRITICAL_LEVEL_META = {
+  pending:{label:'Awaiting notification', cls:'pill-amber'},
+  overdue:{label:'OVERDUE', cls:'pill-crimson'},
+  escalated:{label:'OVERDUE — escalated to Regional', cls:'pill-crimson'},
+};
+const CRITICAL_METHOD_LABELS = {phone:'Phone', in_person:'In person'};
+function renderCriticalAttempts(attempts){
+  if(!attempts || !attempts.length) return '';
+  return `<div style="margin-top:6px;font-size:12px;">${attempts.map(a=>`<div class="muted">
+    ${fmtDate(a.createdAt)} — ${a.outcome==='reached'?'<b style="color:var(--teal-dark);">Reached</b>':'<b style="color:var(--crimson);">Not reached</b>'}:
+    ${escapeHtml(a.personName)}${a.personRole?` (${escapeHtml(a.personRole)})`:''} · ${CRITICAL_METHOD_LABELS[a.method]||escapeHtml(a.method)}${a.outcome==='reached'?` · read-back ${a.readBack?'confirmed':'not confirmed'}`:''} · by ${escapeHtml(a.recordedBy)}${a.note?` — ${escapeHtml(a.note)}`:''}
+  </div>`).join('')}</div>`;
+}
+function renderCriticalTab(critical, log){
+  const items = critical.items;
+  const worklist = items.length ? items.map(c=>{
+    const meta = CRITICAL_LEVEL_META[c.level] || CRITICAL_LEVEL_META.pending;
+    return `<div class="order-card" ${c.level!=='pending'?'style="border-color:var(--crimson);"':''}>
+      <div class="order-card-head">
+        <div><span class="order-id">${escapeHtml(c.memoNumber)}</span> — ${escapeHtml(c.patient?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(c.patient?.hospitalNumber||'—')})</span>
+          <div class="muted" style="font-size:11.5px;">Ordered by ${escapeHtml(c.orderedBy||'—')}${c.patientType==='inpatient'?` · In-patient${c.wardName?`, ${escapeHtml(c.wardName)}`:''}`:c.patientType==='outpatient'?' · Out-patient':''}${c.referred?` · Referred from ${escapeHtml(c.orderingFacilityName)}`:''}</div>
+        </div>
+        <span class="pill ${meta.cls}">${meta.label} · ${c.minutes} min</span>
+      </div>
+      <div class="test-row">
+        <div>${escapeHtml(c.name)} <span class="mono muted">(${escapeHtml(c.code)})</span>${c.specimenNumber?` <span class="mono muted" style="font-size:11px;">${escapeHtml(c.specimenNumber)}</span>`:''}
+          <div class="muted" style="font-size:11.5px;">Result entered ${fmtDate(c.enteredAt)} by ${escapeHtml(c.enteredBy||'—')}</div>
+          ${renderCriticalAttempts(c.attempts)}
+        </div>
+        <div style="text-align:right;"><span class="mono">${escapeHtml(c.value)} ${escapeHtml(c.unit||'')}</span> <span class="flag-${c.flag}">${escapeHtml(c.flagLabel)}</span>
+          ${hasCapability('process')? `<div style="margin-top:8px;"><button class="btn btn-danger btn-sm" onclick="openCriticalNotificationModal('${c.orderId}','${c.code}','${c.flagLabel}',false)">Record Notification</button></div>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('') : `<div class="card empty"><div class="big">✅</div>No critical values awaiting notification.</div>`;
+
+  const notified = log.filter(l=>l.notified);
+  const onTime = notified.filter(l=>l.onTime).length;
+  const logRows = log.map(l=>`<tr>
+    <td class="muted" style="font-size:12px;white-space:nowrap;">${fmtDate(l.enteredAt)}</td>
+    <td>${escapeHtml(l.patient?.name||'Unknown')}<div class="muted mono" style="font-size:11px;">${escapeHtml(l.memoNumber)}</div></td>
+    <td>${escapeHtml(l.name)} <span class="mono muted">(${escapeHtml(l.code)})</span></td>
+    <td><span class="mono">${escapeHtml(l.value)} ${escapeHtml(l.unit||'')}</span> <span class="flag-${l.flag||'CriticalHigh'}">${escapeHtml(l.flagLabel)}</span></td>
+    <td>${l.notified? `${escapeHtml(l.notifiedTo||'—')}<div class="muted" style="font-size:11px;">${fmtDate(l.notifiedAt)} · ${l.attempts.length} attempt${l.attempts.length===1?'':'s'} logged</div>` : `<span class="muted">Not yet · ${l.attempts.length} attempt${l.attempts.length===1?'':'s'}</span>`}</td>
+    <td>${l.notified? `<span class="pill ${l.onTime?'pill-teal':'pill-crimson'}">${l.minutes} min${l.onTime?'':' — late'}</span>` : `<span class="pill pill-amber">${l.minutes} min waiting</span>`}</td>
+  </tr>`).join('');
+
+  return `
+    <div class="card" style="font-size:12.5px;"><span class="muted">A critical value must be notified within <b>${critical.overdueMinutes} minutes</b> of the result being entered. After that it is marked Overdue for senior staff; after <b>${critical.escalateMinutes} minutes</b> it is also escalated to the Regional administrator. A critical result cannot be certified until someone has been reached.</span></div>
+    ${worklist}
+    <div class="pagehead" style="margin-top:22px;"><h1 style="font-size:17px;">Critical Value Log</h1></div>
+    <div class="card">
+      <div class="grid grid-4">
+        <div class="field" style="margin-bottom:0;"><label>From</label><input type="date" value="${criticalLogFrom}" onchange="criticalLogFrom=this.value;render();"></div>
+        <div class="field" style="margin-bottom:0;"><label>To</label><input type="date" value="${criticalLogTo}" onchange="criticalLogTo=this.value;render();"></div>
+      </div>
+    </div>
+    <div class="grid grid-4">
+      <div class="card kpi"><div class="n">${log.length}</div><div class="l">Critical values in period</div></div>
+      <div class="card kpi"><div class="n">${onTime}</div><div class="l">Notified within ${critical.overdueMinutes} min</div></div>
+      <div class="card kpi"><div class="n">${notified.length - onTime}</div><div class="l">Notified late</div></div>
+      <div class="card kpi"><div class="n">${log.length - notified.length}</div><div class="l">Not yet notified</div></div>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Result entered</th><th>Patient</th><th>Test</th><th>Result</th><th>Notified</th><th>Time to notify</th></tr></thead>
+      <tbody>${logRows || `<tr><td colspan="6" class="empty">No critical values in this period.</td></tr>`}</tbody></table>
+    </div>`;
+}
+let criticalModalState = null; // { orderId, code, certifyAfter }
+function openCriticalNotificationModal(orderId, code, flagLabel, certifyAfter){
+  criticalModalState = { orderId, code, certifyAfter: !!certifyAfter };
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-head"><h2>⚠ ${escapeHtml(flagLabel||'CRITICAL')} — Record Notification</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Test <span class="mono">${escapeHtml(code)}</span>. Log every attempt — including one that did not get through.${certifyAfter?' The result is certified as soon as someone has been reached.':''}</p>
+      <div class="field"><label>Outcome</label>
+        <select id="crit_outcome" onchange="syncCriticalModal()">
+          <option value="reached">Reached — result given</option>
+          <option value="not_reached">Not reached — no answer / unavailable</option>
+        </select></div>
+      <div class="field"><label>Person called</label><input id="crit_person" placeholder="Name of the clinician or nurse"></div>
+      <div class="field"><label>Their role (optional)</label><input id="crit_role" placeholder="e.g. Ordering clinician, Ward nurse"></div>
+      <div class="field"><label>Method</label>
+        <select id="crit_method"><option value="phone">Phone</option><option value="in_person">In person</option></select></div>
+      <div class="field" id="crit_readback_wrap"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="crit_readback"> Read-back confirmed — they repeated the result correctly</label></div>
+      <div class="field"><label>Note (optional)</label><input id="crit_note" placeholder="e.g. will review patient now"></div>
+      <div class="actions-row"><button class="btn btn-danger" onclick="saveCriticalNotification()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+  syncCriticalModal();
+}
+function syncCriticalModal(){
+  const reached = document.getElementById('crit_outcome').value==='reached';
+  document.getElementById('crit_readback_wrap').style.display = reached ? 'block' : 'none';
+}
+async function saveCriticalNotification(){
+  const st = criticalModalState;
+  const outcome = document.getElementById('crit_outcome').value;
+  const personName = (document.getElementById('crit_person').value||'').trim();
+  if(!personName){ showToast('Enter who was called.'); return; }
+  const data = {
+    outcome, personName,
+    personRole: (document.getElementById('crit_role').value||'').trim(),
+    method: document.getElementById('crit_method').value,
+    readBack: document.getElementById('crit_readback').checked,
+    note: (document.getElementById('crit_note').value||'').trim(),
+  };
+  await withErrorToast(async ()=>{
+    await api.recordCriticalNotification(st.orderId, st.code, data);
+    closeModal();
+    if(outcome==='reached' && st.certifyAfter){
+      await certifyResult(st.orderId, st.code); // renders and toasts itself
+      return;
+    }
+    await render();
+    showToast(outcome==='reached' ? 'Notification recorded — the result can now be certified.' : 'Attempt logged — still awaiting a successful notification.');
   });
 }
 function renderIncomingTab(orders, f){
@@ -2074,6 +2226,7 @@ async function viewAuditLog(){
     login:'Login', memo_imported:'Memo Fetched', memo_cancelled:'Memo Cancelled', collect:'Sample Collected',
     recollect:'Sample Recollected', refer:'Referred', receive_referral:'Referral Received',
     load_analyser:'Loaded to Analyser', accept:'Specimen Accepted', reject:'Specimen Rejected',
+    critical_notified:'Critical Value Notified', critical_attempt_failed:'Critical Notification Attempt Failed',
     reject_referral:'Referred Specimen Rejected', rejection_reason_created:'Rejection Reason Added', rejection_reason_deleted:'Rejection Reason Removed',
     analyser_result:'Analyser Result', manual_result:'Manual Result', certify:'Certified',
     user_created:'User Created', user_updated:'User Updated', user_removed:'User Removed',
