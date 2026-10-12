@@ -2,25 +2,27 @@ const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { evalResult } = require('../utils/domain');
+const { renderReportPdf } = require('../utils/report-pdf');
 
 router.use(requireAuth);
 
-router.get('/:orderId', async (req, res) => {
+// Builds the report as the acting facility is allowed to see it. Returns { report } or
+// { status, error }.
+async function buildReport(orderId, fid) {
   const order = await prisma.order.findUnique({
-    where: { id: req.params.orderId },
+    where: { id: orderId },
     include: { tests: true, patient: true, orderingFacility: true, specimens: true, ward: true },
   });
-  if (!order) return res.status(404).json({ error: 'Not found' });
+  if (!order) return { status: 404, error: 'Not found' };
 
   // The ordering facility sees the whole report — its own tests and anything it referred out. A
   // reference lab sees only the tests it performs for this order, i.e. just its own sheet.
-  const fid = req.user.facilityId;
   const own = order.orderingFacilityId === fid;
   const relevantTests = order.tests.filter(t =>
     t.status !== 'deselected' && (own || (t.referred && t.performingFacilityId === fid))
   );
   if (!own && !relevantTests.length) {
-    return res.status(403).json({ error: 'This report is not available to your facility' });
+    return { status: 403, error: 'This report is not available to your facility' };
   }
   const codes = relevantTests.map(t => t.code);
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: codes } }, include: { refRanges: true } });
@@ -32,7 +34,9 @@ router.get('/:orderId', async (req, res) => {
     const specimen = order.specimens.find(s => s.id === t.specimenId);
     const specimenNumber = specimen ? specimen.specimenNumber : null;
     if (t.status !== 'completed') {
-      return { code: t.code, name: t.name, method: tc ? tc.method : null, status: t.status, performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
+      // A result that is entered but not yet certified is only "processing" to any other facility.
+      const status = t.status === 'interfaced' && t.performingFacilityId !== fid ? 'processing' : t.status;
+      return { code: t.code, name: t.name, method: tc ? tc.method : null, status, performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
     }
     if (tc && tc.isCulture) {
       const cultureResult = await prisma.cultureResult.findUnique({
@@ -71,7 +75,7 @@ router.get('/:orderId', async (req, res) => {
   });
   sheets.sort((a, b) => (b.isOrderingFacility ? 1 : 0) - (a.isOrderingFacility ? 1 : 0));
 
-  res.json({
+  return { report: {
     order: { id: order.id, memoNumber: order.memoNumber, createdAt: order.createdAt, orderedBy: order.orderedBy },
     facility: { id: order.orderingFacilityId, name: order.orderingFacility.name }, // the ordering facility
     patient: order.patient,
@@ -81,7 +85,23 @@ router.get('/:orderId', async (req, res) => {
       facility: s.facility, isOrderingFacility: s.isOrderingFacility, lines: s.lines,
       specimens: order.specimens.filter(sp => s.specimenIds.has(sp.id)).map(sp => ({ specimenNumber: sp.specimenNumber, bottleType: sp.bottleType })),
     })),
-  });
+  } };
+}
+
+// The report as a PDF, shown inline by the browser — one page (or more) per sheet.
+router.get('/:orderId/pdf', async (req, res) => {
+  const { report, status, error } = await buildReport(req.params.orderId, req.user.facilityId);
+  if (!report) return res.status(status).json({ error });
+  const pdf = await renderReportPdf(report);
+  const filename = `Report-${String(report.order.memoNumber || report.order.id).replace(/[^A-Za-z0-9_-]/g, '_')}.pdf`;
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${filename}"`, 'Cache-Control': 'no-store' });
+  res.send(pdf);
+});
+
+router.get('/:orderId', async (req, res) => {
+  const { report, status, error } = await buildReport(req.params.orderId, req.user.facilityId);
+  if (!report) return res.status(status).json({ error });
+  res.json(report);
 });
 
 module.exports = router;

@@ -140,23 +140,14 @@
   .check-item span{flex:1;min-width:0;}
   .check-item:hover{background:#F7F9FB;}
   .cat-label{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--mute);font-weight:600;margin:10px 0 2px;}
-  .report-sheet{background:#fff;border:1px solid var(--border);border-radius:10px;padding:26px 30px;}
-  .report-letterhead{display:flex;justify-content:space-between;border-bottom:2px solid var(--navy);padding-bottom:12px;margin-bottom:14px;}
-  .report-letterhead h1{font-size:16px;margin:0;}
-  .report-letterhead .tag{font-size:11px;color:var(--mute);font-family:var(--mono);}
-  .report-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12.5px;margin-bottom:16px;}
-  .report-meta div span{color:var(--mute);}
   .kpi{display:flex;flex-direction:column;gap:2px;}
   .kpi .n{font-size:26px;font-weight:700;font-family:var(--mono);}
   .kpi .l{font-size:12px;color:var(--mute);}
   @media print{
     body *{visibility:hidden;}
-    #labelPrintArea, #labelPrintArea *, #printArea, #printArea *{visibility:visible;}
+    #labelPrintArea, #labelPrintArea *{visibility:visible;}
     #labelPrintArea{position:fixed;top:0;left:0;width:320px;}
     html,body{background:#fff !important;}
-    #printArea{position:absolute;top:0;left:0;width:100%;}
-    #printArea .report-sheet{border:none;border-radius:0;padding:0;margin:0;page-break-after:always;break-after:page;}
-    #printArea .report-sheet:last-child{page-break-after:auto;break-after:auto;}
     .print-label{page-break-after:always;}
     .print-label:last-child{page-break-after:auto;}
     .btn,.no-print{display:none !important;}
@@ -368,7 +359,6 @@ const api = {
   deleteAntibiotic: (id) => apiRequest(`/antibiotics/${id}`, {method:'DELETE'}),
   cultureResult: (orderId,code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`),
   saveCultureResult: (orderId,code,data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`, {method:'POST', body:data}),
-  report: (orderId) => apiRequest(`/reports/${orderId}`),
   history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
 };
 
@@ -1935,7 +1925,6 @@ async function receiveReferral(orderId){
 }
 
 /* ============================= REPORTS ============================= */
-let selectedReportOrder = null;
 let reportSearch = '';
 let reportCollectedDateFilter = '';
 let reportCategoryFilter = '';
@@ -1976,10 +1965,10 @@ async function viewReportsInner(){
     const doneCount = o.tests.filter(t=>t.status==='completed').length;
     const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
     const anyDone = doneCount>0;
-    return `<tr style="cursor:pointer;" onclick="selectedReportOrder='${o.id}';render();">
+    return `<tr style="cursor:pointer;" onclick="openReportPdf('${o.id}')">
       <td class="mono">${escapeHtml(o.memoNumber||o.id)}${o.viewerIsOrigin?'':`<div class="muted" style="font-family:inherit;font-size:11px;">Referred from ${escapeHtml(fac(o.orderingFacilityId).name)}</div>`}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
       <td>${doneCount}/${collectedCount} completed</td>
-      <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();selectedReportOrder='${o.id}';render();">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
+      <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openReportPdf('${o.id}')">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
     </tr>`;
   }).join('');
   return `
@@ -2009,65 +1998,28 @@ async function viewReportsInner(){
       <table><thead><tr><th>Memo No.</th><th>Patient</th><th>Collected</th><th>Status</th><th></th></tr></thead>
       <tbody>${list || `<tr><td colspan="5" class="empty">${q||reportCollectedDateFilter||reportCategoryFilter||reportStatusFilter?'No matching samples.':'No samples found.'}</td></tr>`}</tbody></table>
     </div>
-    ${selectedReportOrder ? await renderReportSheet(selectedReportOrder) : ''}
   `;
 }
-// One sheet per lab that performed tests on the order, each under that lab's own header — the
-// ordering facility's first, then each reference lab's. Printing puts every sheet on its own page.
-async function renderReportSheet(orderId){
-  let report;
-  try{ report = await api.report(orderId); }
-  catch(e){ return `<div class="card" style="color:var(--crimson);">${escapeHtml(e.message)}</div>`; }
-  const { order, facility, patient, patientType, wardName, sheets } = report;
-  const stat = l => l.isStat ? ` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>` : '';
-  const certified = l => `<div class="muted" style="font-size:11px;font-family:inherit;font-weight:400;margin-top:5px;">Certified by ${escapeHtml(l.validatedBy||'')}, ${fmtDate(l.validatedAt)}</div>`;
-  const renderLine = l=>{
-    if(l.status){
-      return `<tr><td>${escapeHtml(l.name)}${stat(l)}</td><td colspan="2" class="muted" style="font-style:italic;">${(STATUS_META[l.status]||{label:l.status}).label}</td><td>${escapeHtml(l.method||'')}</td></tr>`;
+// Opens the report as a PDF in a new browser tab. The PDF is built by the server (one page per
+// performing lab); it is fetched here rather than linked so the login token goes in a header.
+async function openReportPdf(orderId){
+  // The tab has to be opened in the click itself, or the browser treats it as a pop-up.
+  const tab = window.open('', '_blank');
+  if(!tab){ showToast('The browser blocked the report tab — allow pop-ups for this site.'); return; }
+  tab.document.title = 'Laboratory Report';
+  tab.document.body.innerHTML = '<p style="font-family:sans-serif;color:#555;padding:24px;">Preparing report…</p>';
+  try{
+    const res = await fetch(`${API_BASE}/reports/${encodeURIComponent(orderId)}/pdf`, { headers:{ 'Authorization':'Bearer ' + session.token } });
+    if(!res.ok){
+      let msg = `Could not open the report (HTTP ${res.status})`;
+      try{ msg = (await res.json()).error || msg; }catch(e){ /* not JSON */ }
+      throw new Error(msg);
     }
-    if(l.isCulture){
-      const cr = l.cultureResult;
-      const growthLabel = {no_growth:'No Growth', growth:'Growth', contaminated:'Contaminated Specimen'}[cr?.growthStatus] || '—';
-      const organismsHtml = (cr?.organisms||[]).map(o=>{
-        const sensRows = (o.sensitivities||[]).map(s=>`<span class="mono" style="margin-right:10px;">${escapeHtml(s.antibiotic.name)}: <b>${escapeHtml(s.result)}</b></span>`).join('');
-        return `<div style="margin-top:4px;"><b>${escapeHtml(o.organism.name)}</b>${o.colonyCount?` — ${escapeHtml(o.colonyCount)}`:''}<div style="font-size:11px;margin-top:2px;">${sensRows||'<span class="muted">No sensitivity data recorded.</span>'}</div></div>`;
-      }).join('');
-      return `<tr>
-        <td><b>${escapeHtml(l.name)}</b>${stat(l)}</td>
-        <td colspan="2"><div><b>${growthLabel}</b></div>${organismsHtml}${certified(l)}</td>
-        <td>${escapeHtml(l.method||'')}</td>
-      </tr>`;
-    }
-    return `<tr>
-      <td>${escapeHtml(l.name)}${stat(l)}${l.comment?`<div class="muted" style="font-size:11px;">${escapeHtml(l.comment)}</div>`:''}</td>
-      <td><span class="mono flag-${(l.flag||'').replace(' ','')}" style="display:inline-block;">${escapeHtml(l.value)} ${escapeHtml(l.unit||'')} ${l.flag && l.flag!=='Normal' && l.flag!=='N/A' ?`(${l.flagLabel})`:''}</span>${certified(l)}</td>
-      <td class="muted" style="font-size:12px;">${escapeHtml(l.rangeText||'')}</td>
-      <td>${escapeHtml(l.method||'')}</td>
-    </tr>`;
-  };
-  const renderSheet = sheet => `
-      <div class="report-sheet" style="margin-bottom:16px;">
-        <div class="report-letterhead">
-          <div><h1>${escapeHtml(sheet.facility.name)}</h1><div class="tag">Standard Laboratory Report</div></div>
-          <div style="text-align:right;"><div class="mono">${escapeHtml(order.memoNumber||order.id)}</div><div class="muted" style="font-size:11.5px;">${fmtDate(order.createdAt)}</div></div>
-        </div>
-        <div class="report-meta">
-          <div><span>Patient: </span><b>${escapeHtml(patient.name)}</b></div>
-          <div><span>Hospital No. / ID No.: </span><span class="mono">${escapeHtml(patient.hospitalNumber||'—')} / ${escapeHtml(patient.idNumber||'—')}</span></div>
-          <div><span>DOB / Age / Sex: </span>${escapeHtml(patient.dob)} / ${calcAge(patient.dob)}y / ${escapeHtml(patient.sex)}</div>
-          <div><span>Address: </span>${escapeHtml(patient.address||'—')}</div>
-          <div><span>Ordering Clinician: </span>${escapeHtml(order.orderedBy)}</div>
-          <div><span>Patient Type: </span>${patientType==='inpatient'? `In-Patient${wardName?' — '+escapeHtml(wardName):''}` : patientType==='outpatient'? 'Out-Patient' : '—'}</div>
-          <div><span>Memo: </span>${escapeHtml(order.memoNumber)}</div>
-          ${sheet.isOrderingFacility? '' : `<div><span>Referred from: </span>${escapeHtml(facility.name)}</div>`}
-          <div style="grid-column:1/-1;"><span>Specimens: </span>${(sheet.specimens||[]).map(s=>`<span class="mono">${escapeHtml(s.specimenNumber)}</span> (${escapeHtml(s.bottleType)})`).join(', ')||'—'}</div>
-        </div>
-        <table><thead><tr><th>Test</th><th>Result</th><th>Reference Range</th><th>Method</th></tr></thead>
-        <tbody>${sheet.lines.map(renderLine).join('')}</tbody></table>
-      </div>`;
-  return `
-    <div id="printArea">${sheets.map(renderSheet).join('')}</div>
-    <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Report${sheets.length>1?` (${sheets.length} sheets)`:''}</button><button class="btn btn-outline" onclick="selectedReportOrder=null;render();">Close</button></div>`;
+    tab.location.replace(URL.createObjectURL(await res.blob()));
+  }catch(e){
+    tab.close();
+    showToast(e.message);
+  }
 }
 
 /* ============================= PATIENT HISTORY ============================= */
