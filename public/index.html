@@ -387,17 +387,22 @@ function matchRange(t, patient){
   cands.sort((a,b)=> (a.sex==='Any'?1:0)-(b.sex==='Any'?1:0));
   return cands[0];
 }
+// A result as a number, or NaN if it isn't one. "<0.05" / ">400" are read as their boundary.
+function numericValue(value){ return parseFloat(String(value??'').trim().replace(/^[<>≤≥]=?\s*/, '')); }
+// Mirrors evalResult() in src/utils/domain.js — keep the two in step.
 function evalResult(t, patient, value){
   if(!t) return {flag:'N/A', flagLabel:'Unknown test', rangeText:''};
   const range = matchRange(t, patient);
-  const v = parseFloat(value);
-  if(!range) return {flag:'N/A', flagLabel:'Not established', rangeText:'Not established for age/sex'};
-  let flag='Normal', flagLabel='Normal';
-  if(t.criticalLow!=null && v<=t.criticalLow){ flag='CriticalLow'; flagLabel='CRITICAL LOW'; }
-  else if(t.criticalHigh!=null && v>=t.criticalHigh){ flag='CriticalHigh'; flagLabel='CRITICAL HIGH'; }
-  else if(v<range.low){ flag='Low'; flagLabel='Low'; }
-  else if(v>range.high){ flag='High'; flagLabel='High'; }
-  return {flag, flagLabel, rangeText:`${range.low} – ${range.high} ${t.units||''}`.trim()};
+  const rangeText = range ? `${range.low} – ${range.high} ${t.units||''}`.trim() : 'Not established for age/sex';
+  const v = numericValue(value);
+  if(Number.isNaN(v)) return {flag:'N/A', flagLabel: range?'':'Not established', rangeText};
+  // Critical limits first, independent of any reference range.
+  if(t.criticalLow!=null && v<=t.criticalLow) return {flag:'CriticalLow', flagLabel:'CRITICAL LOW', rangeText};
+  if(t.criticalHigh!=null && v>=t.criticalHigh) return {flag:'CriticalHigh', flagLabel:'CRITICAL HIGH', rangeText};
+  if(!range) return {flag:'N/A', flagLabel:'Not established', rangeText};
+  if(v<range.low) return {flag:'Low', flagLabel:'Low', rangeText};
+  if(v>range.high) return {flag:'High', flagLabel:'High', rangeText};
+  return {flag:'Normal', flagLabel:'Normal', rangeText};
 }
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
 function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

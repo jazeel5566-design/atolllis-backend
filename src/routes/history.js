@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
       if (!tests.length) continue;
 
       const codes = tests.map(t => t.code);
-      const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: codes } } });
+      const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: codes } }, include: { refRanges: true } });
       const lines = tests.map(t => {
         const specimen = o.specimens.find(s => s.id === t.specimenId);
         const specimenNumber = specimen ? specimen.specimenNumber : null;

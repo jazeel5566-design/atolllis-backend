@@ -40,24 +40,29 @@ function matchRange(test, patient) {
   return candidates[0];
 }
 
+// A result as a number, or NaN if it isn't one ("Positive", "No growth"). An analyser's "<0.05" or
+// ">400" is read as its boundary, so a value reported as beyond a limit is still compared to it.
+function numericValue(value) {
+  return parseFloat(String(value ?? '').trim().replace(/^[<>\u2264\u2265]=?\s*/, ''));
+}
+
+// Keep in step with the copy of this function in public/index.html.
 function evalResult(test, patient, value) {
   const range = matchRange(test, patient);
-  const v = parseFloat(value);
-  if (!range) {
-    return { flag: 'N/A', flagLabel: 'Not established', rangeText: 'Not established for age/sex' };
-  }
-  let flag = 'Normal';
-  let flagLabel = 'Normal';
-  if (test.criticalLow != null && v <= test.criticalLow) {
-    flag = 'CriticalLow'; flagLabel = 'CRITICAL LOW';
-  } else if (test.criticalHigh != null && v >= test.criticalHigh) {
-    flag = 'CriticalHigh'; flagLabel = 'CRITICAL HIGH';
-  } else if (v < range.low) {
-    flag = 'Low'; flagLabel = 'Low';
-  } else if (v > range.high) {
-    flag = 'High'; flagLabel = 'High';
-  }
-  return { flag, flagLabel, rangeText: `${range.low} \u2013 ${range.high} ${test.units || ''}`.trim() };
+  const rangeText = range ? `${range.low} \u2013 ${range.high} ${test.units || ''}`.trim() : 'Not established for age/sex';
+  const v = numericValue(value);
+  // A text result can't be compared to anything — no flag, rather than a misleading "Normal".
+  if (Number.isNaN(v)) return { flag: 'N/A', flagLabel: range ? '' : 'Not established', rangeText };
+
+  // Critical limits are checked first and on their own: they belong to the test, not to a
+  // reference range, so a panic value is still caught for a patient whose age/sex has no range.
+  if (test.criticalLow != null && v <= test.criticalLow) return { flag: 'CriticalLow', flagLabel: 'CRITICAL LOW', rangeText };
+  if (test.criticalHigh != null && v >= test.criticalHigh) return { flag: 'CriticalHigh', flagLabel: 'CRITICAL HIGH', rangeText };
+
+  if (!range) return { flag: 'N/A', flagLabel: 'Not established', rangeText };
+  if (v < range.low) return { flag: 'Low', flagLabel: 'Low', rangeText };
+  if (v > range.high) return { flag: 'High', flagLabel: 'High', rangeText };
+  return { flag: 'Normal', flagLabel: 'Normal', rangeText };
 }
 
 // Specimen barcode format: <category letter><YY><M, unpadded><DD, zero-padded><4-digit sequence>
@@ -72,4 +77,4 @@ function generateSpecimenNumber(categoryLetter, sequence, date) {
   return `${letter}${yy}${m}${dd}${seq}`;
 }
 
-module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, matchRange, evalResult, generateSpecimenNumber };
+module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, matchRange, numericValue, evalResult, generateSpecimenNumber };
