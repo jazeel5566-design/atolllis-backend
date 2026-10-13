@@ -1,5 +1,5 @@
 const PDFDocument = require('pdfkit');
-const { calcAge } = require('./domain');
+const { formatAge } = require('./domain');
 
 // Draws the laboratory report as a PDF: one sheet per performing lab (see routes/reports.js), each
 // starting on a new page under that lab's own header.
@@ -23,10 +23,11 @@ const CONTENT_W = PAGE.width - PAGE.margin * 2;
 const BOTTOM = PAGE.height - PAGE.margin - 22; // room for the footer line
 const PAD = 5;
 const COLS = [
-  { label: 'Test', w: 150 },
-  { label: 'Result', w: 165 },
-  { label: 'Reference Range', w: 110 },
-  { label: 'Method', w: CONTENT_W - 425 },
+  { label: 'Test', w: 135 },
+  { label: 'Result', w: 125 },
+  { label: 'Flag', w: 70 },
+  { label: 'Reference Range', w: 100 },
+  { label: 'Method', w: CONTENT_W - 430 },
 ];
 const INK = '#1a2433', MUTE = '#6b7785', RULE = '#cfd6de', CRIMSON = '#b3261e', HEAD_BG = '#eef2f6';
 const REG = 'Helvetica', BOLD = 'Helvetica-Bold', ITALIC = 'Helvetica-Oblique', MONO = 'Courier';
@@ -85,7 +86,7 @@ function rowFor(l) {
   const method = { blocks: [block(l.method || '', { size: 8.5 })], span: 1 };
 
   if (l.status) {
-    return [{ blocks: testCell, span: 1 }, { blocks: [block(STATUS_LABELS[l.status] || l.status, { font: ITALIC, color: MUTE })], span: 2 }, method];
+    return [{ blocks: testCell, span: 1 }, { blocks: [block(STATUS_LABELS[l.status] || l.status, { font: ITALIC, color: MUTE })], span: 3 }, method];
   }
   if (l.isCulture) {
     const cr = l.cultureResult;
@@ -96,15 +97,17 @@ function rowFor(l) {
       blocks.push(block(sens || 'No sensitivity data recorded.', { size: 8, color: sens ? INK : MUTE }));
     }
     blocks.push(certified(l));
-    return [{ blocks: testCell, span: 1 }, { blocks, span: 2 }, method];
+    return [{ blocks: testCell, span: 1 }, { blocks, span: 3 }, method];
   }
   if (l.comment) testCell.push(block(l.comment, { size: 7.5, color: MUTE }));
   const flagged = l.flag && l.flag !== 'Normal' && l.flag !== 'N/A';
   const critical = /^Critical/.test(l.flag || '');
-  const resultText = `${l.value == null ? '' : l.value} ${l.unit || ''}${flagged ? ` (${l.flagLabel})` : ''}`.trim();
+  const resultText = `${l.value == null ? '' : l.value} ${l.unit || ''}`.trim();
+  // The flag has its own column and is always words, so it still reads on a black-and-white print.
   return [
     { blocks: testCell, span: 1 },
     { blocks: [block(resultText, { font: flagged ? BOLD : REG, color: critical ? CRIMSON : INK }), certified(l)], span: 1 },
+    { blocks: [block(flagged ? l.flagLabel : '', { font: BOLD, size: 8.5, color: critical ? CRIMSON : INK })], span: 1 },
     { blocks: [block(l.rangeText || '', { size: 8.5, color: MUTE })], span: 1 },
     method,
   ];
@@ -141,7 +144,7 @@ function drawMeta(doc, report, sheet, y) {
   const pairs = [
     ['Patient', patient.name],
     ['Hospital No. / ID No.', `${patient.hospitalNumber || '—'} / ${patient.idNumber || '—'}`],
-    ['DOB / Age / Sex', `${patient.dob} / ${calcAge(patient.dob)}y / ${patient.sex}`],
+    ['DOB / Age / Sex', `${patient.dob} / ${formatAge(patient.dob)} / ${patient.sex}`],
     ['Address', patient.address || '—'],
     ['Ordering Clinician', order.orderedBy || '—'],
     ['Patient Type', typeText],
@@ -197,6 +200,9 @@ function drawSheet(doc, report, sheet, pageInfo) {
     y += h;
     doc.moveTo(PAGE.margin, y).lineTo(PAGE.margin + CONTENT_W, y).lineWidth(0.5).strokeColor(RULE).stroke();
   }
+  // So a reader can tell the sheet is complete and no page is missing.
+  if (y + 24 > BOTTOM) y = continuedPage();
+  doc.font(REG).fontSize(8.5).fillColor(MUTE).text('— End of report —', PAGE.margin, y + 10, { width: CONTENT_W, align: 'center' });
   return pageInSheet;
 }
 

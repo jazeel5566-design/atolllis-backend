@@ -30,6 +30,18 @@ function calcAge(dob) {
   return a;
 }
 
+// Age for display: whole years from 2 upward; months, then days, below that — "0y" tells a
+// clinician nothing about a newborn. Keep in step with fmtAge() in public/index.html.
+function formatAge(dob, now = new Date()) {
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return '?';
+  let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) months -= 1;
+  if (months >= 24) return `${Math.floor(months / 12)}y`;
+  if (months >= 1) return `${months}m`;
+  return `${Math.max(0, Math.floor((now - d) / 86400000))}d`;
+}
+
 function matchRange(test, patient) {
   const age = calcAge(patient.dob);
   const sex = patient.sex;
@@ -77,4 +89,4 @@ function generateSpecimenNumber(categoryLetter, sequence, date) {
   return `${letter}${yy}${m}${dd}${seq}`;
 }
 
-module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, matchRange, numericValue, evalResult, generateSpecimenNumber };
+module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, formatAge, matchRange, numericValue, evalResult, generateSpecimenNumber };

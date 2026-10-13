@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AtollLIS — Laboratory Information System (API-connected)</title>
+<title>AtollLIS — Laboratory Information System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -72,15 +72,19 @@
   .btn-teal:hover{background:var(--teal-dark);}
   .btn-danger{background:#fff;color:var(--crimson);border:1px solid var(--crimson-bg);}
   .btn-danger:hover{background:var(--crimson-bg);}
-  .btn-sm{padding:6px 10px;font-size:12px;border-radius:6px;}
+  .btn-sm{padding:7px 11px;font-size:12.5px;border-radius:6px;}
+  .btn:focus-visible,.tab:focus-visible,nav button:focus-visible,[role="button"]:focus-visible,.modal-close:focus-visible{outline:3px solid #6FD8C7;outline-offset:2px;}
+  .btn:active{transform:translateY(1px);}
   .btn[disabled]{opacity:.45;cursor:not-allowed;}
-  table{width:100%;border-collapse:collapse;font-size:13px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums;}
   th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--mute);padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;}
-  td{padding:9px 10px;border-bottom:1px solid #EEF1F5;vertical-align:middle;}
+  td{padding:11px 10px;border-bottom:1px solid #EEF1F5;vertical-align:middle;}
+  tbody tr:hover td{background:#F7F9FB;}
+  td.num,th.num{text-align:right;}
   tr:last-child td{border-bottom:none;}
-  .mono{font-family:var(--mono);}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
   .muted{color:var(--mute);}
-  .pill{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:100px;letter-spacing:.2px;white-space:nowrap;}
+  .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:100px;letter-spacing:.2px;white-space:nowrap;}
   .pill-grey{background:#EDF0F4;color:#5A6B7B;}
   .pill-amber{background:var(--amber-bg);color:var(--amber);}
   .pill-teal{background:var(--teal-bg);color:var(--teal-dark);}
@@ -95,7 +99,25 @@
   .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--mute);}
   .range-row{display:grid;grid-template-columns:1fr 70px 70px 80px 80px 30px;gap:6px;margin-bottom:6px;align-items:center;}
   .range-row input,.range-row select{padding:6px 7px;font-size:12.5px;}
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.25);}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;z-index:120;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:min(640px,92vw);display:flex;gap:14px;align-items:flex-start;}
+  .toast-error{background:var(--crimson);}
+  .toast-close{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:5px;font-size:12px;padding:3px 9px;cursor:pointer;font-family:var(--sans);flex-shrink:0;}
+  #confirmRoot .modal-overlay{z-index:110;}
+  .patient-bar{position:sticky;top:52px;z-index:5;background:var(--navy);color:#fff;border-radius:9px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .patient-bar .who{font-weight:600;font-size:15px;}
+  .patient-bar .ids{font-size:12.5px;color:#D5DFEE;margin-top:2px;}
+  .modal .patient-bar{top:0;margin-bottom:14px;}
+  .sir{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+  .sir button{font-family:var(--mono);font-size:13px;font-weight:600;width:38px;height:32px;border:none;border-left:1px solid var(--border);background:#fff;color:var(--mute);cursor:pointer;}
+  .sir button:first-child{border-left:none;}
+  .sir button.on{background:var(--navy);color:#fff;}
+  .sir:focus-visible{outline:3px solid #6FD8C7;outline-offset:2px;}
+  .stat-row{border-left:4px solid var(--crimson);padding-left:10px !important;}
+  .wait{font-size:12px;color:var(--mute);white-space:nowrap;}
+  .wait.late{color:var(--crimson);font-weight:700;}
+  .live-flag{font-size:12px;margin-left:6px;}
+  #content.busy{opacity:.6;transition:opacity .15s ease-out;}
+  @media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important;}}
   .stepper{display:flex;align-items:center;margin:10px 0 4px;}
   .flow-track{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;}
   .flow-step{flex:1 1 160px;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 14px;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s;position:relative;}
@@ -128,11 +150,16 @@
   .result-input{width:90px;display:inline-block;}
   .flag-High{color:var(--crimson);font-weight:700;}
   .flag-Low{color:var(--amber);font-weight:700;}
+  .flag-High::before{content:"▲ ";}
+  .flag-Low::before{content:"▼ ";}
   .flag-Normal{color:var(--teal-dark);font-weight:600;}
   .flag-CriticalHigh,.flag-CriticalLow{background:var(--crimson);color:#fff;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.3px;}
   .flag-CriticalHigh::before,.flag-CriticalLow::before{content:"⚠ ";}
   .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
-  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border);}
+  .subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 16px;}
+  .subtab{padding:6px 12px;font-size:12.5px;font-weight:500;color:var(--mute);cursor:pointer;border:1px solid var(--border);border-radius:100px;background:#fff;}
+  .subtab.active{color:#fff;background:var(--navy);border-color:var(--navy);}
   .tab{padding:9px 14px;font-size:13px;font-weight:500;color:var(--mute);cursor:pointer;border-bottom:2px solid transparent;}
   .tab.active{color:var(--navy);border-bottom-color:var(--navy);}
   .checklist{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:10px;}
@@ -181,6 +208,8 @@
     .test-row{flex-direction:column;align-items:flex-start;}
     .result-input{width:100%;margin-bottom:6px;}
     .actions-row .btn{flex:1 1 auto;text-align:center;}
+    .btn,.btn-sm,.tab,.subtab{min-height:44px;}
+    .patient-bar{top:56px;}
   }
 </style>
 </head>
@@ -204,6 +233,7 @@
   </main>
 </div>
 <div id="modalRoot"></div>
+<div id="confirmRoot"></div>
 <div id="toastRoot"></div>
 
 <script>
@@ -226,15 +256,18 @@ function hasCapability(cap){
   return entry ? entry.capabilities.includes(cap) : false;
 }
 
+// `needs` lists capabilities, any one of which makes the section useful to a role; sections without
+// it are for everyone. A role is not shown a section it cannot act in.
 const NAV_ITEMS = [
-  {id:'processflow', label:'Process Flow', icon:'⇉'},
-  {id:'dashboard', label:'Dashboard', icon:'◆'},
-  {id:'collection', label:'Sample Collection', icon:'✚'},
-  {id:'acceptance', label:'Sample Acceptance', icon:'✔'},
-  {id:'processing', label:'Result Processing', icon:'⚗'},
-  {id:'reports', label:'Reports', icon:'▦'},
-  {id:'settings', label:'Settings', icon:'⚙'},
+  {id:'processflow', label:'Process Flow'},
+  {id:'dashboard', label:'Dashboard'},
+  {id:'collection', label:'Sample Collection', needs:['collect']},
+  {id:'acceptance', label:'Sample Acceptance', needs:['accept']},
+  {id:'processing', label:'Result Processing', needs:['process','certify']},
+  {id:'reports', label:'Reports'},
+  {id:'settings', label:'Settings'},
 ];
+function navItemsForRole(){ return NAV_ITEMS.filter(n=>!n.needs || n.needs.some(hasCapability)); }
 
 const STATUS_META = {
   deselected:{label:'Not Collected (deselected)', cls:'pill-grey'},
@@ -259,10 +292,32 @@ let organismsCache = [];
 let antibioticsCache = [];
 let wardsCache = [];
 let state = { activeView: 'dashboard' };
+// Kept for this browser tab only, so a refresh does not log the user out. Closing the tab ends it.
+function saveSession(){
+  try{
+    if(session.token) sessionStorage.setItem('atolllis.session', JSON.stringify({token:session.token, user:session.user, activeView:state.activeView}));
+    else sessionStorage.removeItem('atolllis.session');
+  }catch(e){ /* storage unavailable — the session simply will not survive a refresh */ }
+}
+function restoreSession(){
+  try{
+    const saved = JSON.parse(sessionStorage.getItem('atolllis.session')||'null');
+    if(saved && saved.token && saved.user){ session = {token:saved.token, user:saved.user}; state.activeView = saved.activeView || 'dashboard'; return true; }
+  }catch(e){ /* ignore a damaged entry */ }
+  return false;
+}
 
 /* ============================= API CLIENT ============================= */
+// Typing in a search box or changing a filter re-draws the screen from the answers already
+// loaded (renderCached), instead of asking the server again on every keystroke — that is what made
+// search crawl on a slow line. Any change sent to the server empties this, so nothing stale is
+// shown after an action.
+const getCache = new Map();
+let renderingFromCache = false;
 async function apiRequest(path, opts){
   opts = opts || {};
+  const isGet = !opts.method || opts.method==='GET';
+  if(isGet && renderingFromCache && getCache.has(path)) return JSON.parse(getCache.get(path));
   const headers = {'Content-Type':'application/json'};
   if(opts.auth!==false && session.token) headers['Authorization'] = 'Bearer ' + session.token;
   let res;
@@ -274,10 +329,16 @@ async function apiRequest(path, opts){
   let data = null;
   try{ data = await res.json(); }catch(e){ /* empty body */ }
   if(!res.ok){
+    if(res.status===401 && opts.auth!==false && session.token){
+      // The login has run out (or the server restarted): back to the login screen, saying why.
+      doLogout();
+      throw new Error('Your session has ended — log in again to continue.');
+    }
     const err = new Error((data && data.error) || `Request failed (HTTP ${res.status})`);
     err.status = res.status; err.data = data;
     throw err;
   }
+  if(isGet) getCache.set(path, JSON.stringify(data)); else getCache.clear();
   return data;
 }
 const api = {
@@ -331,7 +392,6 @@ const api = {
   receiveReferredSpecimen: (specimenNumber) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/receive-referral`, {method:'POST'}),
   rejectReferredSpecimen: (specimenNumber, reasonId, note) => apiRequest(`/specimens/${encodeURIComponent(specimenNumber)}/reject-referral`, {method:'POST', body:{reasonId, note}}),
   rejections: (params) => apiRequest(`/specimens/rejections${params?('?'+params):''}`),
-  analyserResult: (orderId, code, value, unit) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/analyser-result`, {method:'POST', body:{value, unit}}),
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
   certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
   criticalWorklist: () => apiRequest('/tests/critical'),
@@ -408,28 +468,114 @@ function evalResult(t, patient, value){
   if(v>range.high) return {flag:'High', flagLabel:'High', rangeText};
   return {flag:'Normal', flagLabel:'Normal', rangeText};
 }
-function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+// One date format on every computer (the browser's own varies): 12 Oct 2026, 22:10.
+function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); if(Number.isNaN(d.getTime())) return '—'; return d.toLocaleString('en-GB',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}); }
+function fmtDob(dob){ if(!dob) return '—'; const d=new Date(dob); if(Number.isNaN(d.getTime())) return String(dob); return d.toLocaleDateString('en-GB',{year:'numeric',month:'short',day:'numeric'}); }
+// Age for display: years from 2 upward; months, then days, below that. Keep in step with
+// formatAge() in src/utils/domain.js.
+function fmtAge(dob){
+  const d = new Date(dob), n = new Date();
+  if(!dob || Number.isNaN(d.getTime())) return '?';
+  let months = (n.getFullYear()-d.getFullYear())*12 + (n.getMonth()-d.getMonth());
+  if(n.getDate()<d.getDate()) months--;
+  if(months>=24) return Math.floor(months/12)+'y';
+  if(months>=1) return months+'m';
+  return Math.max(0, Math.floor((n-d)/86400000))+'d';
+}
+const SEX_LABELS = {M:'Male', F:'Female'};
+// "2h 10m" since a moment in time.
+function fmtWait(iso){
+  const mins = Math.max(0, Math.floor((Date.now()-new Date(iso))/60000));
+  if(mins<60) return mins+'m';
+  const h = Math.floor(mins/60);
+  return h<48 ? `${h}h ${mins%60}m` : `${Math.floor(h/24)}d ${h%24}h`;
+}
+// The identity block shown wherever a result or a specimen is being acted on.
+function patientBar(p, extra){
+  const visit = extra?.patientType==='inpatient' ? `In-Patient${extra.wardName?' · '+escapeHtml(extra.wardName):''}` : extra?.patientType==='outpatient' ? 'Out-Patient' : '';
+  return `<div class="patient-bar">
+    <div><div class="who">${escapeHtml(p?.name||'Unknown patient')}</div>
+      <div class="ids">Hospital No. <b>${escapeHtml(p?.hospitalNumber||'—')}</b> · ID No. ${escapeHtml(p?.idNumber||'—')} · ${p?.dob?`${fmtAge(p.dob)} (born ${fmtDob(p.dob)})`:'age unknown'} · ${escapeHtml(SEX_LABELS[p?.sex]||p?.sex||'sex unknown')}${visit?` · ${visit}`:''}</div></div>
+    ${extra?.right||''}
+  </div>`;
+}
 function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
-function showToast(msg){
+// A confirmation fades by itself; an error stays until it is dismissed, so it cannot be missed.
+let toastTimer = null;
+function showToast(msg, kind){
   const root = document.getElementById('toastRoot');
-  root.innerHTML = `<div class="toast">${escapeHtml(msg)}</div>`;
-  setTimeout(()=>{ root.innerHTML=''; }, 3200);
+  clearTimeout(toastTimer);
+  if(kind==='error'){
+    root.innerHTML = `<div class="toast toast-error" role="alert"><span>${escapeHtml(msg)}</span><button class="toast-close" onclick="document.getElementById('toastRoot').innerHTML=''">Dismiss</button></div>`;
+    return;
+  }
+  root.innerHTML = `<div class="toast" role="status">${escapeHtml(msg)}</div>`;
+  toastTimer = setTimeout(()=>{ root.innerHTML=''; }, 3500);
+}
+// Asks before a change that cannot be undone, saying exactly what will change. Resolves true/false.
+// Lives in its own layer so it can sit on top of an open dialog.
+let confirmResolve = null;
+function confirmAction({title, body, confirmLabel, danger}){
+  return new Promise(resolve=>{
+    confirmResolve = resolve;
+    document.getElementById('confirmRoot').innerHTML = `
+    <div class="modal-overlay" role="dialog" aria-modal="true">
+      <div class="modal" style="max-width:440px;">
+        <div class="modal-head"><h2>${escapeHtml(title)}</h2></div>
+        <p style="font-size:13.5px;margin-top:-4px;line-height:1.5;">${body}</p>
+        <div class="actions-row"><button class="btn ${danger===false?'':'btn-danger'}" id="confirmYes" onclick="answerConfirm(true)">${escapeHtml(confirmLabel)}</button><button class="btn btn-outline" onclick="answerConfirm(false)">Cancel</button></div>
+      </div>
+    </div>`;
+    const yes = document.getElementById('confirmYes'); if(yes) yes.focus();
+  });
+}
+// What a row's button is about to act on, read from the row itself (its first cell or first line),
+// so a confirmation can name it.
+function itemNameFrom(btn){
+  if(!btn || !btn.closest) return '';
+  const tr = btn.closest('tr');
+  const src = tr ? tr.cells[0] : (btn.closest('.test-row') || btn.closest('.order-card'));
+  if(!src) return '';
+  const first = src.querySelector('.order-id, b, span') || src;
+  return (((tr ? src.innerText : first.innerText) || '').split('\n')[0] || '').trim().slice(0, 80);
+}
+function answerConfirm(value){
+  document.getElementById('confirmRoot').innerHTML = '';
+  const r = confirmResolve; confirmResolve = null;
+  if(r) r(value);
+}
+// Code 128 (code set B) — a real barcode a scanner or an analyser can read. Each entry is one
+// symbol as bars (1) and spaces (0); 104 is Start B, 106 is Stop. The check symbol is the weighted
+// sum of the values modulo 103.
+const CODE128 = '11011001100,11001101100,11001100110,10010011000,10010001100,10001001100,10011001000,10011000100,10001100100,11001001000,11001000100,11000100100,10110011100,10011011100,10011001110,10111001100,10011101100,10011100110,11001110010,11001011100,11001001110,11011100100,11001110100,11101101110,11101001100,11100101100,11100100110,11101100100,11100110100,11100110010,11011011000,11011000110,11000110110,10100011000,10001011000,10001000110,10110001000,10001101000,10001100010,11010001000,11000101000,11000100010,10110111000,10110001110,10001101110,10111011000,10111000110,10001110110,11101110110,11010001110,11000101110,11011101000,11011100010,11011101110,11101011000,11101000110,11100010110,11101101000,11101100010,11100011010,11101111010,11001000010,11110001010,10100110000,10100001100,10010110000,10010000110,10000101100,10000100110,10110010000,10110000100,10011010000,10011000010,10000110100,10000110010,11000010010,11001010000,11110111010,11000010100,10001111010,10100111100,10010111100,10010011110,10111100100,10011110100,10011110010,11110100100,11110010100,11110010010,11011011110,11011110110,11110110110,10101111000,10100011110,10001011110,10111101000,10111100010,11110101000,11110100010,10111011110,10111101110,11101011110,11110101110,11010000100,11010010000,11010011100,1100011101011'.split(',');
+function code128Modules(text){
+  const values = [104];
+  for(const ch of String(text||'')){
+    const v = ch.charCodeAt(0) - 32;
+    if(v<0 || v>94) return null; // not encodable in set B
+    values.push(v);
+  }
+  const check = values.reduce((sum,v,i)=> sum + v*(i===0?1:i), 0) % 103;
+  return [...values, check, 106].map(v=>CODE128[v]).join('');
 }
 function barcodeSvg(code, h){
   h = h||46;
-  let bars = '', x = 4;
-  for(let i=0;i<(code||'').length;i++){
-    const c = code.charCodeAt(i);
-    const w = 2 + (c % 3);
-    if(i % 2 === 0){ bars += `<rect x="${x}" y="0" width="${w}" height="${h}" fill="#111"/>`; }
-    x += w + 1;
+  const modules = code128Modules(code);
+  if(!modules || !code) return `<div class="muted" style="font-size:11px;">No barcode — this number cannot be encoded.</div>`;
+  const quiet = 10; // blank margin each side, in modules — scanners need it
+  let bars = '', x = quiet;
+  for(let i=0;i<modules.length;){
+    let run = 1;
+    while(i+run<modules.length && modules[i+run]===modules[i]) run++;
+    if(modules[i]==='1') bars += `<rect x="${x}" y="0" width="${run}" height="${h}"/>`;
+    x += run; i += run;
   }
-  return `<svg viewBox="0 0 ${x+4} ${h}" width="100%" height="${h}" xmlns="http://www.w3.org/2000/svg" style="display:block;">${bars}</svg>`;
+  return `<svg viewBox="0 0 ${x+quiet} ${h}" width="100%" height="${h}" preserveAspectRatio="none" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" style="display:block;background:#fff;" role="img" aria-label="Barcode ${escapeHtml(code)}"><g fill="#000">${bars}</g></svg>`;
 }
 async function withErrorToast(fn){
   try{ await fn(); }
-  catch(e){ showToast(e.message || 'Something went wrong.'); }
+  catch(e){ showToast(e.message || 'Something went wrong. Nothing was saved — try again.', 'error'); }
 }
 
 /* ============================= LOGIN / LOGOUT ============================= */
@@ -453,7 +599,7 @@ async function renderLoginScreen(){
   el.innerHTML = `<div class="login-card"><div class="brand" style="padding:0 0 18px;border:none;">
     <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
     <div class="sub" style="color:var(--mute);">Laboratory Information System</div></div>
-    <p class="muted" style="font-size:12.5px;">Contacting backend…</p></div>`;
+    <p class="muted" style="font-size:12.5px;">Connecting…</p></div>`;
 
   let backendOk = true, loadError = '';
   try{ await apiRequest('/health', {auth:false}); }
@@ -469,8 +615,8 @@ async function renderLoginScreen(){
       </div>
       ${!backendOk? `<p style="color:var(--crimson);font-size:12px;">${escapeHtml(loadError)}</p><button class="btn btn-outline" style="width:100%;margin-bottom:14px;" onclick="renderLoginScreen()">Retry Connection</button>` : ''}
       <div class="grid grid-2">
-        <div class="field"><label>Username</label><input id="login_user" placeholder="e.g. anazima" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('login_pass').focus();}"></div>
-        <div class="field"><label>Password</label><input id="login_pass" type="password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
+        <div class="field"><label>Username</label><input id="login_user" autocomplete="username" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('login_pass').focus();}"></div>
+        <div class="field"><label>Password</label><input id="login_pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}"></div>
       </div>
       <button class="btn" style="width:100%;" onclick="doLogin()">Log In</button>
     </div>`;
@@ -503,6 +649,7 @@ async function doFacilityPickLogin(){
     session.token = data.token; session.user = data.user;
     await bootstrapCaches();
     state.activeView = 'dashboard';
+    saveSession();
     await renderApp();
   }catch(e){
     showToast(e.message);
@@ -524,6 +671,7 @@ async function doLogin(){
     session.token = data.token; session.user = data.user;
     await bootstrapCaches();
     state.activeView = 'dashboard';
+    saveSession();
     await renderApp();
   }catch(e){
     showToast(e.message);
@@ -540,6 +688,8 @@ async function bootstrapCaches(){
 // not have this shortcut — each facility's staff would hold their own credentials.
 function doLogout(){
   session = { token:null, user:null };
+  saveSession(); getCache.clear();
+  closeModal(); document.getElementById('confirmRoot').innerHTML = '';
   facilitiesCache = []; catalogCache = []; categoriesCache = []; roleCapabilitiesCache = {roles:[], allCapabilities:[]};
   closeSidebar();
   renderApp();
@@ -548,7 +698,9 @@ function doLogout(){
 /* ============================= SHELL / ROUTER ============================= */
 function renderShell(){
   const navEl = document.getElementById('nav');
-  navEl.innerHTML = NAV_ITEMS.map(n=>`<button class="${state.activeView===n.id?'active':''}" onclick="goTo('${n.id}')"><span class="navicon">${n.icon}</span>${n.label}</button>`).join('');
+  const items = navItemsForRole();
+  if(!items.some(n=>n.id===state.activeView)) state.activeView = 'dashboard';
+  navEl.innerHTML = items.map(n=>`<button class="${state.activeView===n.id?'active':''}" ${state.activeView===n.id?'aria-current="page"':''} onclick="goTo('${n.id}')">${n.label}</button>`).join('');
 
   const f = fac(session.user.facilityId);
   document.getElementById('topbarFacility').innerHTML = `<div class="facility-name">${escapeHtml(f.name)}</div>`;
@@ -562,15 +714,22 @@ function renderShell(){
 }
 function openSidebar(){ document.getElementById('topbarMain').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
 function closeSidebar(){ document.getElementById('topbarMain').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
-function goTo(view){ state.activeView = view; render(); closeSidebar(); }
-function goToProcessing(tab){ processingTab = tab; render(); closeSidebar(); }
-function goToReports(tab){ reportsTab = tab; render(); closeSidebar(); }
+function goTo(view){ state.activeView = view; saveSession(); render(); closeSidebar(); }
+function goToProcessing(tab, statusFilter){ state.activeView = 'processing'; processingTab = tab; processingStatusFilter = statusFilter || ''; analyserScanResult = null; render(); closeSidebar(); }
+function goToReports(tab){ state.activeView = 'reports'; reportsTab = tab; render(); closeSidebar(); }
 function newMemoFocus(){ state.activeView='collection'; render().then(()=>{ const el=document.getElementById('memoFetchField'); if(el) el.focus(); }); closeSidebar(); }
 
-async function render(){
+let renderSeq = 0;
+// opts.cached — redraw from data already loaded (search and filter changes).
+// opts.quiet  — background refresh: no dimming, and the cursor is left where it is.
+async function render(opts){
+  opts = opts || {};
   renderShell();
   const c = document.getElementById('content');
-  c.innerHTML = `<div class="card muted">Loading…</div>`;
+  const seq = ++renderSeq;
+  if(!c.innerHTML.trim()) c.innerHTML = `<div class="card muted">Loading…</div>`;
+  else if(!opts.cached && !opts.quiet) c.classList.add('busy'); // the old screen stays readable while the new one loads
+  renderingFromCache = !!opts.cached;
   try{
     let html = '';
     if(state.activeView==='processflow') html = await viewProcessFlow();
@@ -580,11 +739,74 @@ async function render(){
     else if(state.activeView==='processing') html = await viewProcessingPage();
     else if(state.activeView==='reports') html = await viewReportsPage();
     else if(state.activeView==='settings') html = await viewSettings();
+    if(seq!==renderSeq) return; // a newer draw has started; this one is out of date
+    const act = document.activeElement;
+    const keep = (opts.cached && act && act.id && c.contains(act)) ? {id:act.id, start:act.selectionStart, end:act.selectionEnd} : null;
     c.innerHTML = html;
+    if(keep){
+      const el = document.getElementById(keep.id);
+      if(el){ el.focus(); try{ el.setSelectionRange(keep.start, keep.end); }catch(e){ /* not a text field */ } }
+    }
   }catch(e){
-    c.innerHTML = `<div class="card" style="border-color:var(--crimson-bg);"><h2 style="color:var(--crimson);">Couldn't load this screen</h2><p class="muted">${escapeHtml(e.message)}</p><button class="btn btn-sm" onclick="render()">Retry</button></div>`;
+    if(seq!==renderSeq || !session.token) return;
+    c.innerHTML = `<div class="card" style="border-color:var(--crimson-bg);"><h2 style="color:var(--crimson);">This screen could not be loaded</h2><p class="muted">${escapeHtml(e.message)}</p><button class="btn btn-sm" onclick="render()">Try again</button></div>`;
+  }finally{
+    if(seq===renderSeq){ renderingFromCache = false; c.classList.remove('busy'); }
   }
+  if(!opts.cached && !opts.quiet) focusPrimaryField();
 }
+function renderCached(){ return render({cached:true}); }
+// Scan-first screens start with the cursor in the scan field; an open specimen starts in its first
+// result field. Skipped on phones (it would pop the keyboard up) and while a dialog is open.
+function focusPrimaryField(){
+  if(window.innerWidth<=860 || document.getElementById('modalRoot').innerHTML.trim() || document.getElementById('confirmRoot').innerHTML.trim()) return;
+  const id = state.activeView==='collection' ? 'memoFetchField'
+    : state.activeView==='acceptance' ? 'acceptScanField'
+    : state.activeView==='processing' && processingTab==='analyser' ? 'procSearch' : null;
+  const el = (state.activeView==='processing' && document.querySelector('#content .result-input')) || (id && document.getElementById(id));
+  if(el) el.focus();
+}
+// Worklists refresh by themselves once a minute so new samples, waiting times and overdue critical
+// values stay current — but never while someone is typing, has a result half-entered, or has a
+// dialog open.
+setInterval(()=>{
+  if(!session.token || !['dashboard','processflow','acceptance','processing'].includes(state.activeView)) return;
+  if(document.getElementById('modalRoot').innerHTML.trim() || document.getElementById('confirmRoot').innerHTML.trim()) return;
+  const active = document.activeElement;
+  if(active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName) && (active.value||'').trim()) return;
+  if([...document.querySelectorAll('#content .result-input')].some(el=>(el.value||'').trim())) return;
+  render({quiet:true});
+}, 60000);
+
+// Keyboard and screen-reader access for things built as clickable blocks (tabs, order cards,
+// specimen rows): they become focusable and answer Enter/Space; every field label is tied to its
+// field. Applied to whatever is drawn, whenever it is drawn.
+let fieldIdSeq = 0;
+function enhanceAccessibility(root){
+  root.querySelectorAll('[onclick]').forEach(el=>{
+    if(['BUTTON','A','INPUT','SELECT','TEXTAREA','LABEL'].includes(el.tagName) || el.hasAttribute('tabindex')) return;
+    el.setAttribute('tabindex','0'); el.setAttribute('role', el.classList.contains('tab')||el.classList.contains('subtab') ? 'tab' : 'button');
+    if(el.classList.contains('active')) el.setAttribute('aria-selected','true');
+  });
+  root.querySelectorAll('.field').forEach(field=>{
+    const label = field.querySelector(':scope > label');
+    const input = field.querySelector('input:not([type=checkbox]):not([type=radio]),select,textarea');
+    if(!label || !input || label.htmlFor || label.contains(input)) return;
+    if(!input.id) input.id = 'fld_' + (++fieldIdSeq);
+    label.htmlFor = input.id;
+  });
+}
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Enter' && e.key!==' ') return;
+  const el = e.target;
+  if(el && el.getAttribute && el.hasAttribute('onclick') && ['button','tab'].includes(el.getAttribute('role'))){ e.preventDefault(); el.click(); }
+});
+window.addEventListener('DOMContentLoaded', ()=>{
+  ['content','modalRoot','loginScreen'].forEach(id=>{
+    const root = document.getElementById(id);
+    new MutationObserver(()=>enhanceAccessibility(root)).observe(root, {childList:true, subtree:true});
+  });
+});
 
 /* ============================= PROCESS FLOW ============================= */
 async function viewProcessFlow(){
@@ -601,17 +823,16 @@ async function viewProcessFlow(){
   const reportsReady = reportable.filter(o=>o.tests.some(t=>t.status==='completed')).length;
 
   const steps = [
-    {icon:'🧾', title:'Memo Generation', desc:'Order memo fed from the HIS — or Billing if no HIS is available.', badge:null, action:"newMemoFocus()"},
-    {icon:'🩸', title:'Sample Collection & Referral', desc:'Find by memo number, select tests, collect & print label. Higher-level tests are assigned and sent right here.', badge:awaitingCollect+referralPendingCount, action:"goTo('collection')"},
-    {icon:'📥', title:'Sample Acceptance', desc:'Read the barcode, then Accept or Reject with a reason — local tests only.', badge:awaitingAccept, action:"goTo('acceptance')"},
-    {icon:'⚗️', title:'Analyser Processing', desc:'Load locally-collected samples to the analyser; results interface back automatically.', badge:analyserCount, action:"goToProcessing('analyser')"},
-    {icon:'✅', title:'Result Validation', desc:'Validate & certify interfaced or manually entered results.', badge:validationCount, action:"goToProcessing('validation')"},
-    {icon:'📄', title:'Report Issue', desc:'Completed results become a standard laboratory report.', badge:reportsReady, action:"goToReports('samples')"},
+    {title:'Memo Generation', desc:'Order memo fed from the HIS — or Billing if no HIS is available.', badge:null, action:"newMemoFocus()"},
+    {title:'Sample Collection & Referral', desc:'Find by memo number, select tests, collect & print label. Higher-level tests are assigned and sent right here.', badge:awaitingCollect+referralPendingCount, action:"goTo('collection')"},
+    {title:'Sample Acceptance', desc:'Read the barcode, then Accept or Reject with a reason — local tests only.', badge:awaitingAccept, action:"goTo('acceptance')"},
+    {title:'Analyser Processing', desc:'Load locally-collected samples to the analyser; results interface back automatically.', badge:analyserCount, action:"goToProcessing('analyser')"},
+    {title:'Result Validation', desc:'Validate & certify interfaced or manually entered results.', badge:validationCount, action:"goToProcessing('analyser','interfaced')"},
+    {title:'Report Issue', desc:'Completed results become a standard laboratory report.', badge:reportsReady, action:"goToReports('samples')"},
   ];
   const track = steps.map((s,i)=>{
     const step = `<div class="flow-step" onclick="${s.action}">
       <div class="flow-num">${i+1}</div>
-      <div class="flow-icon">${s.icon}</div>
       <div class="flow-title">${escapeHtml(s.title)}</div>
       <div class="flow-desc">${escapeHtml(s.desc)}</div>
       ${s.badge!==null ? `<div class="flow-badge"><span class="pill ${s.badge>0?'pill-amber':'pill-grey'}">${s.badge} ${s.badge===1?'item':'items'}</span></div>` : ''}
@@ -670,12 +891,12 @@ async function viewDashboard(){
       ${awaitingReferAction? `<div class="card"><h2>Action needed</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${awaitingReferAction} order(s) have higher-level tests ready to be referred upward — assign and send from Sample Collection.</p><button class="btn btn-sm" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
       ${incoming.length? `<div class="card"><h2>Incoming referrals</h2><p class="muted" style="margin-top:-6px;font-size:13px;">${incomingAwaitingReceipt} in transit to this lab.</p><button class="btn btn-sm" onclick="goToProcessing('incoming')">Open Result Processing →</button></div>`:''}
     </div>`:''}
-    ${!anyOrders? `<div class="card empty"><div class="big">🧪</div><h2>No activity yet</h2><p>Fetch a memo from the HIS to get started, or (if you're an Admin) create a test memo from Sample Collection to try the system out.</p><button class="btn" style="margin-top:8px;" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
+    ${!anyOrders? `<div class="card empty"><h2>No activity yet</h2><p>Fetch a memo from the HIS to get started, or (if you're an Admin) create a test memo from Sample Collection to try the system out.</p><button class="btn" style="margin-top:8px;" onclick="goTo('collection')">Open Sample Collection →</button></div>`:''}
     <div class="card">
       <h2>The sample-processing pipeline</h2>
       <ol style="margin:0;padding-left:18px;font-size:13px;color:var(--mute);line-height:1.9;">
         <li>A memo is generated from the HIS (or Billing, if no HIS) with patient and test details, then fetched into this app by number.</li>
-        <li>At <b>Sample Collection</b>, tests are pre-selected and can be deselected; Collect prints a label with a unique excision number and barcode. Higher-level tests are assigned and sent to the receiving lab right here.</li>
+        <li>At <b>Sample Collection</b>, tests are pre-selected and can be deselected; Collect prints a label with a unique specimen number and barcode. Higher-level tests are assigned and sent to the receiving lab right here.</li>
         <li>At <b>Sample Acceptance</b>, the remaining local tests are Accepted or Rejected (with a reason); already-referred tests skip this step.</li>
         <li>Local tests load to the analyser and results interface back automatically if the unit matches the catalog.</li>
         <li>At <b>Result Processing → Validation</b>, results are validated and certified — the sample becomes Completed and its report becomes viewable.</li>
@@ -749,11 +970,11 @@ async function renderCollectionQueue(f){
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pill pill-grey">Awaiting Collection</span>
-          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelMemo('${o.id}')">Cancel</button>
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelMemo('${o.id}',this)">Cancel</button>
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="card empty"><div class="big">🧾</div>No memos awaiting collection — fetch one by number above.</div>`;
+  }).join('') : `<div class="card empty">No memos awaiting collection — fetch one by number above.</div>`;
   return listHtml;
 }
 function renderReferralPendingBlock(orders, f){
@@ -773,7 +994,7 @@ function renderReferralPendingBlock(orders, f){
           return `<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span><span class="mono muted" style="font-size:11px;">${spec?escapeHtml(spec.specimenNumber):''}</span></div>`;
         }).join('')}
         <div class="actions-row" style="margin-top:10px;">
-          <button class="btn btn-teal" onclick="referOrder('${o.id}')">⇪ Refer higher-level test(s) upward — 1 click</button>
+          <button class="btn btn-teal" onclick="referOrder('${o.id}')">Refer these tests to the higher-level lab</button>
         </div>
       </div>`;
     }).join('')}
@@ -785,12 +1006,12 @@ function renderCollectionPanel(o, f){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
       <div>
         <h2 style="margin-bottom:2px;">${escapeHtml(p?.name||'Unknown')}</h2>
-        <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')} · ID No. ${escapeHtml(p?.idNumber||'—')} · ${p?calcAge(p.dob):'?'}y · ${p?.sex||'—'}<br>${escapeHtml(p?.address||'')}</div>
+        <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')} · ID No. ${escapeHtml(p?.idNumber||'—')} · ${p?fmtAge(p.dob):'?'} (born ${fmtDob(p?.dob)}) · ${escapeHtml(SEX_LABELS[p?.sex]||p?.sex||'—')}<br>${escapeHtml(p?.address||'')}</div>
         <div class="muted" style="font-size:11.5px;margin-top:4px;">Memo ${escapeHtml(o.memoNumber)} (${o.memoSource}) · Ordered by ${escapeHtml(o.orderedBy)} · ${fmtDate(o.createdAt)}</div>
         ${o.sampleStatus? `<div class="muted" style="font-size:11.5px;">Collected by ${escapeHtml(o.collectedBy||'—')}, ${fmtDate(o.collectedAt)}</div>`:''}
       </div>
       <div style="display:flex;gap:8px;">
-        ${!o.sampleStatus? `<button class="btn btn-danger btn-sm" onclick="cancelMemo('${o.id}')">Cancel Memo</button>`:''}
+        ${!o.sampleStatus? `<button class="btn btn-danger btn-sm" data-memo="${escapeHtml(o.memoNumber)}" onclick="cancelMemo('${o.id}',this)">Cancel Memo</button>`:''}
         <button class="btn btn-outline btn-sm" onclick="collectionOpenOrderId=null;collectionOpenOrder=null;render();">← Back to list</button>
       </div>
     </div>`;
@@ -839,7 +1060,13 @@ function renderCollectionPanel(o, f){
           </table>
         </div>
       </div>
-      <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect Sample</button></div>
+      <div class="field" style="margin-top:14px;border:1.5px solid var(--navy);border-radius:9px;padding:10px 12px;">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;color:var(--text);font-size:13.5px;">
+          <input type="checkbox" id="f_idConfirmed">
+          <span>I have checked this patient's identity against <b>two identifiers</b> — name <b>${escapeHtml(p?.name||'—')}</b> and Hospital No. <b>${escapeHtml(p?.hospitalNumber||'—')}</b>${p?.dob?` (born ${fmtDob(p.dob)})`:''} — asked of the patient or read from the wristband.</span>
+        </label>
+      </div>
+      <div class="actions-row"><button class="btn btn-teal" onclick="openPrintDialog()">Collect sample and print labels</button></div>
     </div>`;
   }
 
@@ -897,7 +1124,7 @@ function renderCreateTestMemoModal(){
   const filtered = q ? catalogCache.filter(t=>(t.name||'').toLowerCase().includes(q) || (t.code||'').toLowerCase().includes(q)) : catalogCache;
   const suggestedMemoNumber = 'HIS-TEST-' + Math.floor(100000+Math.random()*900000);
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:560px;">
       <div class="modal-head"><h2>Create Test Memo</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">Creates a memo in the mock HIS/Billing system, exactly like a real one — fetch it from Sample Collection afterward the normal way.</p>
@@ -1007,8 +1234,9 @@ async function loadMemoByNumber(memoNumber){
     await render();
   }
 }
-async function cancelMemo(orderId){
-  if(!confirm('Cancel this memo? This removes it permanently — it has not been collected yet.')) return;
+async function cancelMemo(orderId, btn){
+  const name = (btn && btn.dataset && btn.dataset.memo) || itemNameFrom(btn);
+  if(!await confirmAction({title:`Cancel this memo?`, body:`Memo <b>${escapeHtml(name||'')}</b> has not been collected. Cancelling removes it from the collection list; it can be fetched again from the HIS if it was cancelled by mistake.`, confirmLabel:`Cancel memo`})) return;
   await withErrorToast(async ()=>{
     await api.cancelMemo(orderId);
     if(collectionOpenOrderId===orderId){ collectionOpenOrderId=null; collectionOpenOrder=null; }
@@ -1021,7 +1249,8 @@ async function cancelMemo(orderId){
 function slugify(s){ return String(s).replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'bottle'; }
 function openPrintDialog(){
   const selected = Array.from(document.querySelectorAll('input[name="collectTest"]:checked')).map(el=>el.value);
-  if(!selected.length && !confirm('No tests selected — collect an empty sample anyway?')) return;
+  if(!selected.length){ showToast('Select at least one test to collect. To drop the whole memo, use Cancel Memo.', 'error'); return; }
+  if(!document.getElementById('f_idConfirmed')?.checked){ showToast('Confirm the patient\'s identity (tick the box) before collecting.', 'error'); return; }
   const patientType = document.getElementById('f_patientType')?.value || 'outpatient';
   const wardEl = document.getElementById('f_ward');
   const wardId = (patientType==='inpatient' && wardEl) ? wardEl.value : null;
@@ -1075,7 +1304,7 @@ function renderPrintDialog(){
     return renderQtyRow(category, bottleType, null, testsLine, `qty_${slugify(key)}`, 'Labels to print');
   }).join('');
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:480px;">
       <div class="modal-head"><h2>${title}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">${subtitle} Set how many copies of each to print.</p>
@@ -1118,27 +1347,28 @@ function printLabelsForOrder(o, groups, quantities){
       const specimenNumber = specimen ? specimen.specimenNumber : '—';
       const qty = quantities[key] ?? 1;
       const codes = tests.map(t=>t.code).join(', ');
-      for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes);
+      for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes, specimen?.collectedAt);
     });
   }
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>Sample Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div id="labelPrintArea">${labelsHtml}</div>
-      <p class="muted no-print" style="font-size:11.5px;margin-top:10px;">Simulated barcode for this prototype — not camera-scannable. Later screens accept the specimen number typed or pasted, the way a real scanner would inject it.</p>
+      <p class="muted no-print" style="font-size:12px;margin-top:10px;">Code 128 barcode. Check the first printed label scans before sticking the rest.</p>
       <div class="actions-row no-print"><button class="btn" onclick="window.print()">Print Labels</button><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
     </div>
   </div>`;
 }
-function renderOneLabel(p, specimenNumber, category, bottleType, codes){
-  return `<div class="print-label" style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">
+function renderOneLabel(p, specimenNumber, category, bottleType, codes, collectedAt){
+  return `<div class="print-label" style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fff;color:#000;">
     <div style="font-weight:700;font-size:13.5px;">${escapeHtml(p?.name||'Unknown')}</div>
-    <div class="mono" style="font-size:12px;">Hospital No. ${escapeHtml(p?.hospitalNumber||'—')}</div>
+    <div class="mono" style="font-size:12px;">Hosp. No. ${escapeHtml(p?.hospitalNumber||'—')} · ${p?.dob?`${fmtDob(p.dob)} (${fmtAge(p.dob)})`:'DOB —'} · ${escapeHtml(p?.sex||'—')}</div>
     <div style="font-size:12px;font-weight:600;margin-top:4px;">${escapeHtml(category)} — ${escapeHtml(bottleType)}</div>
-    <div style="font-size:11.5px;margin:2px 0 6px;color:#444;">${escapeHtml(codes)||'—'}</div>
+    <div style="font-size:11.5px;margin:2px 0 6px;">${escapeHtml(codes)||'—'}</div>
     ${barcodeSvg(specimenNumber)}
-    <div class="mono" style="text-align:center;font-size:12px;letter-spacing:1px;margin-top:2px;">${escapeHtml(specimenNumber)}</div>
+    <div class="mono" style="text-align:center;font-size:12.5px;letter-spacing:1px;margin-top:2px;">${escapeHtml(specimenNumber)}</div>
+    <div style="font-size:10.5px;text-align:center;margin-top:2px;">Collected ${fmtDate(collectedAt||new Date())}</div>
   </div>`;
 }
 
@@ -1150,7 +1380,7 @@ function openReprintDialog(){
   const groups = {};
   activeSpecimens.forEach(s=>{
     const tests = o.tests.filter(t=>t.specimenId===s.id).map(t=>({code:t.code, name:t.name}));
-    groups[s.id] = { category:s.category, bottleType:s.bottleType, tests, specimenNumber:s.specimenNumber };
+    groups[s.id] = { category:s.category, bottleType:s.bottleType, tests, specimenNumber:s.specimenNumber, collectedAt:s.collectedAt };
   });
   pendingReprintGroups = groups;
   const rows = Object.keys(groups).sort().map(key=>{
@@ -1159,7 +1389,7 @@ function openReprintDialog(){
     return renderQtyRow(category, bottleType, specimenNumber, testsLine, `rqty_${slugify(key)}`, 'Copies');
   }).join('');
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:480px;">
       <div class="modal-head"><h2>Reprint Barcode Labels</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">Nothing is recorded by reprinting — the original collection time and staff stay exactly as they are.</p>
@@ -1173,14 +1403,14 @@ function confirmReprint(){
   const p = collectionOpenOrder.patient;
   let labelsHtml = '';
   Object.keys(groups).sort().forEach(key=>{
-    const { category, bottleType, tests, specimenNumber } = groups[key];
+    const { category, bottleType, tests, specimenNumber, collectedAt } = groups[key];
     const el = document.getElementById(`rqty_${slugify(key)}`);
     const qty = el ? Math.max(0, parseInt(el.value,10)||0) : 1;
     const codes = tests.map(t=>t.code).join(', ');
-    for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes);
+    for(let i=0;i<qty;i++) labelsHtml += renderOneLabel(p, specimenNumber, category, bottleType, codes, collectedAt);
   });
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>Sample Labels (Reprint)</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div id="labelPrintArea">${labelsHtml}</div>
@@ -1264,32 +1494,24 @@ function renderAcceptanceTab(orders, f){
     </div>`;
   }).join('');
 
-  return scanBox + scanPanel + (rows || (!acceptanceScanResult ? `<div class="card empty"><div class="big">🧪</div>No specimens awaiting acceptance.</div>` : ''));
+  return scanBox + scanPanel + (rows || (!acceptanceScanResult ? `<div class="card empty">No specimens awaiting acceptance.</div>` : ''));
 }
 function renderAcceptancePanel(s){
+  const right = `<div style="display:flex;gap:10px;align-items:center;"><span class="mono" style="font-size:13px;">${escapeHtml(s.specimenNumber)}</span><button class="btn btn-outline btn-sm" onclick="acceptanceScanResult=null;render();">Close specimen</button></div>`;
   return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-      <div>
-        <h2 style="margin-bottom:2px;">${escapeHtml(s.patient?.name||'Unknown')} <span class="mono muted" style="font-weight:400;">(${escapeHtml(s.specimenNumber)})</span></h2>
-        <div class="muted" style="font-size:12.5px;">Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')} · ID No. ${escapeHtml(s.patient?.idNumber||'—')} · ${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)}</div>
-      </div>
-      <button class="btn btn-outline btn-sm" onclick="acceptanceScanResult=null;render();">Close</button>
-    </div>
-    <div style="margin:12px 0;padding:10px;border:1px dashed var(--border);border-radius:8px;max-width:260px;">
-      ${barcodeSvg(s.specimenNumber)}
-      <div class="mono" style="text-align:center;font-size:12px;margin-top:2px;">${escapeHtml(s.specimenNumber)}</div>
-    </div>
+    ${patientBar(s.patient, {patientType:s.patientType, wardName:s.wardName, right})}
+    <div class="muted" style="font-size:12.5px;margin:8px 0 12px;">${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)} · Memo ${escapeHtml(s.memoNumber||'—')}${s.collectedAt?` · Collected ${fmtDate(s.collectedAt)}`:''}</div>
     <div class="field"><label>Tests on this specimen</label>
-      <div class="checklist">${s.tests.map(t=>`<div class="test-row"><span>${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></span></div>`).join('') || '<p class="muted">No tests on this specimen.</p>'}</div>
+      <div class="checklist">${s.tests.map(t=>`<div class="test-row ${t.isStat?'stat-row':''}"><span>${escapeHtml(t.name)} <span class="mono muted">(${escapeHtml(t.code)})</span>${t.isStat?` <span class="pill pill-crimson">STAT</span>`:''}</span></div>`).join('') || '<p class="muted">No tests on this specimen.</p>'}</div>
     </div>
     ${s.status==='collected'
       ? (hasCapability('accept')
         ? `<div class="actions-row">
-          <button class="btn btn-teal" onclick="acceptSpecimen('${s.specimenNumber}')">Accept Specimen</button>
-          <button class="btn btn-danger" onclick="rejectSpecimen('${s.specimenNumber}')">Reject Specimen</button>
+          <button class="btn btn-teal" id="acceptSpecimenBtn" onclick="acceptSpecimen('${s.specimenNumber}')">Accept specimen ↵</button>
+          <button class="btn btn-danger" onclick="rejectSpecimen('${s.specimenNumber}')">Reject specimen</button>
         </div>`
         : `<p class="muted" style="font-size:12.5px;">Only a Technologist, Pathologist, or Lab Manager can accept or reject a specimen.</p>`)
-      : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}.</p>`}
+      : `<p class="muted" style="font-size:12.5px;">This specimen is already <b>${escapeHtml(s.status)}</b>${s.rejectionReason?` — ${escapeHtml(s.rejectionReason)}`:''}. Scan the next one.</p>`}
   </div>`;
 }
 function renderRejectedLog(rejections, f){
@@ -1301,7 +1523,7 @@ function renderRejectedLog(rejections, f){
         <input type="date" value="${rejectionLogTo}" onchange="rejectionLogTo=this.value;render();"></div>
     </div>
   </div>`;
-  if(!rejections.length) return periodCard + `<div class="card empty"><div class="big">🚫</div>No rejected specimens in this period.</div>`;
+  if(!rejections.length) return periodCard + `<div class="card empty">No rejected specimens in this period.</div>`;
 
   // Summary: one row per reason, one column per category, counted over the period shown.
   const categories = [...new Set(rejections.map(r=>r.category))].sort();
@@ -1340,17 +1562,20 @@ async function scanSpecimenForAcceptance(){
   await withErrorToast(async ()=>{
     acceptanceScanResult = await api.getSpecimen(num);
     await render();
+    // Scan, then Enter again to accept: the Accept button holds the cursor while a specimen is open.
+    const btn = document.getElementById('acceptSpecimenBtn'); if(btn) btn.focus();
   });
 }
 async function acceptSpecimen(specimenNumber){
   await withErrorToast(async ()=>{
-    acceptanceScanResult = await api.acceptSpecimen(specimenNumber);
+    await api.acceptSpecimen(specimenNumber);
+    acceptanceScanResult = null; // done — back to the scan field for the next tube
     await render();
-    showToast('Specimen received into the laboratory.');
+    showToast(`Specimen ${specimenNumber} accepted. Scan the next one.`);
   });
 }
 async function acceptAllSpecimens(specimenNumbers){
-  if(!confirm(`Accept all ${specimenNumbers.length} specimen(s) on this memo?`)) return;
+  if(!await confirmAction({title:`Accept ${specimenNumbers.length} specimens?`, body:`All on this memo: <span class="mono">${specimenNumbers.map(escapeHtml).join(', ')}</span>.<br>Check each tube is present and labelled before accepting them together.`, confirmLabel:`Accept ${specimenNumbers.length} specimens`, danger:false})) return;
   await withErrorToast(async ()=>{
     for(const num of specimenNumbers) await api.acceptSpecimen(num);
     await render();
@@ -1362,23 +1587,29 @@ let rejectModalMode = 'acceptance'; // 'acceptance' (ordering lab) | 'referral' 
 async function rejectSpecimen(specimenNumber, mode){
   rejectModalSpecimenNumber = specimenNumber;
   rejectModalMode = mode || 'acceptance';
-  let reasons = [];
+  let reasons = [], spec = null;
   try{ reasons = await api.rejectionReasons(); }catch(e){ /* fall through with only "Other" */ }
+  try{ spec = await api.getSpecimen(specimenNumber); }catch(e){ /* the dialog still works without the detail */ }
+  const affected = spec ? spec.tests.filter(t=>rejectModalMode==='referral' ? t.status==='awaiting_receipt' : t.status==='collected') : [];
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-head"><h2>Reject Specimen <span class="mono muted" style="font-weight:400;font-size:13px;">${escapeHtml(specimenNumber)}</span></h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-head"><h2>Reject specimen <span class="mono muted" style="font-weight:400;font-size:13px;">${escapeHtml(specimenNumber)}</span></h2><button class="modal-close" aria-label="Close" onclick="closeModal()">✕</button></div>
+      ${spec? patientBar(spec.patient, {patientType:spec.patientType, wardName:spec.wardName}) : ''}
+      ${spec? `<p style="font-size:13px;margin-top:0;">${escapeHtml(spec.category)} · ${escapeHtml(spec.bottleType)}. Rejecting it stops ${affected.length===1?'this test':`these ${affected.length} tests`} until the specimen is collected again${rejectModalMode==='referral'?' by the ordering facility':''}:<br><b>${affected.map(t=>escapeHtml(t.name)).join(', ')||'—'}</b></p>`:''}
       <div class="field"><label>Reason</label>
         <select id="reject_reason" onchange="syncRejectNoteField()">
+          <option value="">Select a reason…</option>
           ${reasons.map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
           <option value="other">Other — explain below</option>
         </select>
       </div>
-      <div class="field"><label id="reject_note_label"></label><input id="reject_note" placeholder="e.g. leaking in transit"></div>
-      <div class="actions-row"><button class="btn btn-danger" onclick="confirmRejectSpecimen()">Reject Specimen</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+      <div class="field"><label id="reject_note_label" for="reject_note"></label><input id="reject_note"></div>
+      <div class="actions-row"><button class="btn btn-danger" onclick="confirmRejectSpecimen()">Reject specimen</button><button class="btn btn-outline" onclick="closeModal()">Keep specimen</button></div>
     </div>
   </div>`;
   syncRejectNoteField();
+  document.getElementById('reject_reason').focus();
 }
 function syncRejectNoteField(){
   const isOther = document.getElementById('reject_reason').value==='other';
@@ -1387,12 +1618,14 @@ function syncRejectNoteField(){
 async function confirmRejectSpecimen(){
   const reasonId = document.getElementById('reject_reason').value;
   const note = (document.getElementById('reject_note').value||'').trim();
+  if(!reasonId){ showToast('Select the reason for rejecting this specimen.'); return; }
   if(reasonId==='other' && !note){ showToast('Enter an explanation for "Other".'); return; }
   await withErrorToast(async ()=>{
     if(rejectModalMode==='referral'){
       await api.rejectReferredSpecimen(rejectModalSpecimenNumber, reasonId, note);
     }else{
-      acceptanceScanResult = await api.rejectSpecimen(rejectModalSpecimenNumber, reasonId, note);
+      await api.rejectSpecimen(rejectModalSpecimenNumber, reasonId, note);
+      acceptanceScanResult = null;
     }
     closeModal();
     await render();
@@ -1411,6 +1644,7 @@ async function viewProcessingPage(){
     api.criticalWorklist().catch(()=>({items:[], escalated:[], overdueMinutes:30, escalateMinutes:60})),
     api.interfaceMessages(processingTab==='interface' ? interfaceLogView : 'held').catch(()=>({held:0, messages:[]})),
   ]);
+  lastCriticalItems = critical.items;
   const criticalLog = processingTab==='critical' ? await api.criticalLog(criticalLogParams()).catch(()=>[]) : [];
   const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)));
   return `
@@ -1473,7 +1707,7 @@ async function retryInterfaceMessage(id){
 }
 function openDismissInterfaceModal(id){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:440px;">
       <div class="modal-head"><h2>Dismiss held entry</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">The entry stays in the full log with your name and this note. It will not be written to any patient.</p>
@@ -1509,31 +1743,31 @@ function renderProcessingTab(orders, f){
       <div class="field" style="margin-bottom:0;"><label>Search</label>
         <input id="procSearch" value="${escapeHtml(worklistSearch)}" placeholder="Patient, Hospital No., ID No., Memo No., or Specimen No."
           onkeydown="if(event.key==='Enter'){event.preventDefault();searchProcessingEnter();}"
-          oninput="worklistSearch=this.value;render();const el=document.getElementById('procSearch');if(el)el.focus();"></div>
+          oninput="worklistSearch=this.value;renderCached();const el=document.getElementById('procSearch');if(el)el.focus();"></div>
       <div class="field" style="margin-bottom:0;"><label>Category</label>
-        <select onchange="processingCategoryFilter=this.value;render();">
+        <select onchange="processingCategoryFilter=this.value;renderCached();">
           <option value="">All categories</option>
           ${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${processingCategoryFilter===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
         </select></div>
       <div class="field" style="margin-bottom:0;"><label>Status</label>
-        <select onchange="processingStatusFilter=this.value;render();">
+        <select onchange="processingStatusFilter=this.value;renderCached();">
           <option value="">All statuses</option>
           ${Object.entries(PROCESSING_STATUS_GROUPS).map(([k,g])=>`<option value="${k}" ${processingStatusFilter===k?'selected':''}>${g.label}</option>`).join('')}
         </select></div>
       <div class="field" style="margin-bottom:0;"><label>Collected Date</label>
-        <input type="date" value="${processingDateFilter}" onchange="processingDateFilter=this.value;render();"></div>
+        <input type="date" value="${processingDateFilter}" onchange="processingDateFilter=this.value;renderCached();"></div>
     </div>
     <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
     <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:center;">
       <div style="display:flex;gap:14px;align-items:center;">
         <span class="muted" style="font-size:12.5px;font-weight:600;">Patient Type:</span>
         ${['','outpatient','inpatient'].map(v=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;">
-          <input type="radio" name="procPatientType" value="${v}" ${processingPatientTypeFilter===v?'checked':''} onchange="processingPatientTypeFilter='${v}';render();">
+          <input type="radio" name="procPatientType" value="${v}" ${processingPatientTypeFilter===v?'checked':''} onchange="processingPatientTypeFilter='${v}';renderCached();">
           ${v===''?'All':v==='inpatient'?'In-Patient':'Out-Patient'}
         </label>`).join('')}
       </div>
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600;">
-        <input type="checkbox" ${processingStatOnly?'checked':''} onchange="processingStatOnly=this.checked;render();"> STAT only
+        <input type="checkbox" ${processingStatOnly?'checked':''} onchange="processingStatOnly=this.checked;renderCached();"> STAT only
       </label>
     </div>
   </div>`;
@@ -1542,54 +1776,77 @@ function renderProcessingTab(orders, f){
 
   const q = worklistSearch.trim().toLowerCase();
   const anyFilterActive = !!(q || processingCategoryFilter || processingStatusFilter || processingDateFilter || processingPatientTypeFilter || processingStatOnly);
+  // With no filter set the list is the work itself: everything accepted here that still needs a
+  // result or a validation. Certified work only appears when asked for.
+  const ACTION_STATUSES = ['received','processing','interfaced'];
+  const shownStatuses = anyFilterActive ? ['received','processing','interfaced','completed'] : ACTION_STATUSES;
 
-  let rows = '';
-  if(anyFilterActive){
-    rows = orders.map(o=>{
-      const p = o.patient;
-      if(q){
-        const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
-        const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
-        if(!matchOrder) return '';
-      }
-      if(processingPatientTypeFilter && o.patientType!==processingPatientTypeFilter) return '';
-      // Only ever show specimens that have been accepted into this facility — a specimen still
-      // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
-      let specimens = (o.specimens||[]).filter(s => o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && ['received','processing','interfaced','completed'].includes(t.status)));
-      if(processingCategoryFilter) specimens = specimens.filter(s=>s.category===processingCategoryFilter);
-      if(processingStatusFilter){
-        const group = PROCESSING_STATUS_GROUPS[processingStatusFilter];
-        specimens = specimens.filter(s=>{
-          const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
-          return stests.some(t=>group.testStatuses.includes(t.status));
-        });
-      }
-      if(processingStatOnly){
-        specimens = specimens.filter(s=>o.tests.some(t=>t.specimenId===s.id && t.performingFacilityId===f.id && t.isStat));
-      }
-      // Date always means "collected on" — a specimen's collection date never changes, regardless
-      // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
-      if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
-      if(!specimens.length) return '';
-      return `<div class="order-card">
-        <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')})</span>${o.patientType? ` <span class="pill pill-grey" style="font-size:10px;">${o.patientType==='inpatient'?'In-Patient'+(o.wardName?' · '+escapeHtml(o.wardName):''):'Out-Patient'}</span>`:''}</div></div>
-        ${specimens.map(s=>{
-          const stests = o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
-          const anyStat = stests.some(t=>t.isStat);
-          return `<div class="test-row" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
-            <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span>${anyStat? ` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</div>
-            <div><span class="pill pill-amber">${stests.length} test(s)</span></div>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }).join('');
-  }
+  const cards = [];
+  orders.forEach(o=>{
+    const p = o.patient;
+    if(q){
+      const specMatch = (o.specimens||[]).some(s=>s.specimenNumber.toLowerCase().includes(q));
+      const matchOrder = specMatch || (o.memoNumber||'').toLowerCase().includes(q) || (p?.hospitalNumber||'').toLowerCase().includes(q) || (p?.idNumber||'').toLowerCase().includes(q) || (p?.name||'').toLowerCase().includes(q);
+      if(!matchOrder) return;
+    }
+    if(processingPatientTypeFilter && o.patientType!==processingPatientTypeFilter) return;
+    // Only ever show specimens that have been accepted into this facility — a specimen still
+    // sitting as 'collected' (awaiting acceptance) belongs to Sample Acceptance, not here.
+    const mine = s => o.tests.filter(t=>t.specimenId===s.id && t.performingFacilityId===f.id);
+    let specimens = (o.specimens||[]).filter(s => mine(s).some(t=>shownStatuses.includes(t.status)));
+    if(processingCategoryFilter) specimens = specimens.filter(s=>s.category===processingCategoryFilter);
+    if(processingStatusFilter){
+      const group = PROCESSING_STATUS_GROUPS[processingStatusFilter];
+      specimens = specimens.filter(s=>mine(s).some(t=>group.testStatuses.includes(t.status)));
+    }
+    if(processingStatOnly) specimens = specimens.filter(s=>mine(s).some(t=>t.isStat));
+    // Date always means "collected on" — a specimen's collection date never changes, regardless
+    // of which stage (Received/Processing/Interfaced/Certified) it's currently sitting in.
+    if(processingDateFilter) specimens = specimens.filter(s=>s.collectedAt && s.collectedAt.slice(0,10)===processingDateFilter);
+    if(!specimens.length) return;
+
+    const info = specimens.map(s=>{
+      const stests = mine(s);
+      const open = stests.filter(t=>ACTION_STATUSES.includes(t.status));
+      const toResult = stests.filter(t=>t.status==='received'||t.status==='processing').length;
+      const toValidate = stests.filter(t=>t.status==='interfaced').length;
+      // Target turnaround is the shortest of the unfinished tests on the tube, counted from collection.
+      const targets = open.map(t=>test(t.code)?.tat).filter(h=>h>0);
+      const targetH = targets.length ? Math.min(...targets) : null;
+      const late = !!(open.length && targetH && s.collectedAt && (Date.now()-new Date(s.collectedAt)) > targetH*3600000);
+      return { s, stat: open.some(t=>t.isStat) || (!open.length && stests.some(t=>t.isStat)), open:open.length, toResult, toValidate, targetH, late };
+    }).sort((x,y)=> (y.stat-x.stat) || (new Date(x.s.collectedAt||0)-new Date(y.s.collectedAt||0)));
+
+    const html = `<div class="order-card">
+      <div class="order-card-head"><div><span class="order-id">${escapeHtml(o.memoNumber)}</span> — ${escapeHtml(p?.name||'Unknown')} <span class="muted">(Hospital No. ${escapeHtml(p?.hospitalNumber||'—')}${p?.dob?` · ${fmtAge(p.dob)}`:''}${p?.sex?` · ${escapeHtml(p.sex)}`:''})</span>${o.patientType? ` <span class="pill pill-grey" style="font-size:10.5px;">${o.patientType==='inpatient'?'In-Patient'+(o.wardName?' · '+escapeHtml(o.wardName):''):'Out-Patient'}</span>`:''}</div></div>
+      ${info.map(i=>{
+        const s = i.s;
+        const work = [i.toResult?`${i.toResult} to result`:'', i.toValidate?`${i.toValidate} to validate`:''].filter(Boolean).join(' · ') || 'Certified';
+        return `<div class="test-row ${i.stat?'stat-row':''}" data-specimen-row="${escapeHtml(s.specimenNumber)}" style="cursor:pointer;" onclick="loadSpecimenPanel('${s.specimenNumber}');">
+          <div><b class="mono">${escapeHtml(s.specimenNumber)}</b> <span class="muted">(${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)})</span>${i.stat? ` <span class="pill pill-crimson">STAT</span>`:''}</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            ${i.open && s.collectedAt? `<span class="wait ${i.late?'late':''}">${i.late?'⚠ ':''}Waiting ${fmtWait(s.collectedAt)}${i.late?` — over the ${i.targetH}h target`:''}</span>`:''}
+            <span class="pill ${i.open?'pill-amber':'pill-teal'}">${work}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+    const openInfo = info.filter(i=>i.open);
+    cards.push({ html, stat: openInfo.some(i=>i.stat), late: openInfo.some(i=>i.late),
+      oldest: Math.min(...info.map(i=>new Date(i.s.collectedAt||Date.now()).getTime())) });
+  });
+  // STAT first, then anything over its target, then longest waiting.
+  cards.sort((x,y)=> (y.stat-x.stat) || (y.late-x.late) || (x.oldest-y.oldest));
+  const rows = cards.map(c=>c.html).join('');
+  const heading = `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">${anyFilterActive
+    ? `${cards.length} memo${cards.length===1?' matches':'s match'} the filters.`
+    : `Everything waiting for a result or a validation at this lab — STAT first, then longest waiting. ${cards.length} memo${cards.length===1?'':'s'}.`}</p>`;
 
   const emptyState = analyserScanResult ? '' : (anyFilterActive
-    ? `<div class="card empty"><div class="big">🔬</div>No matching specimen.</div>`
-    : `<div class="card empty"><div class="big">🔎</div>Set a filter above to browse specimens.</div>`);
+    ? `<div class="card empty">No specimen matches these filters. Clear a filter, or check the specimen has been accepted at Sample Acceptance.</div>`
+    : `<div class="card empty">Nothing is waiting for a result or a validation. Accepted specimens appear here by themselves.</div>`);
 
-  return filterCard + scanPanel + (rows || emptyState);
+  return filterCard + scanPanel + (rows ? heading + rows : emptyState);
 }
 // Pressing Enter in Search acts like a scan: if it narrows to exactly one specimen, jump straight
 // into it — same ergonomics as scanning a barcode, without a separate dedicated field for it.
@@ -1607,87 +1864,111 @@ async function loadSpecimenPanel(specimenNumber){
   await withErrorToast(async ()=>{
     analyserScanResult = await api.getSpecimen(specimenNumber);
     await render();
+    const panel = document.getElementById('specimenPanel'); if(panel) panel.scrollIntoView({block:'start', behavior:'smooth'});
   });
+}
+function flagOf(s, t){
+  const tc = test(t.code);
+  return (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
 }
 function renderSpecimenScanPanel(s){
   const anyReceived = s.tests.some(t=>t.status==='received');
-  return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-      <div>
-        <h2 style="margin-bottom:2px;">${escapeHtml(s.patient?.name||'Unknown')} <span class="mono muted" style="font-weight:400;">(${escapeHtml(s.specimenNumber)})</span></h2>
-        <div class="muted" style="font-size:12px;">${escapeHtml(s.bottleType)} · Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')} · Memo ${escapeHtml(s.memoNumber)}</div>
-      </div>
-      <button class="btn btn-outline btn-sm" onclick="analyserScanResult=null;render();">Close</button>
-    </div>
+  const normalToValidate = s.tests.filter(t=>t.status==='interfaced' && flagOf(s,t).flag==='Normal');
+  const right = `<div style="display:flex;gap:10px;align-items:center;"><span class="mono" style="font-size:13px;">${escapeHtml(s.specimenNumber)}</span><button class="btn btn-outline btn-sm" onclick="analyserScanResult=null;render();">Close specimen</button></div>`;
+  return `<div class="card" id="specimenPanel">
+    ${patientBar(s.patient, {patientType:s.patientType, wardName:s.wardName, right})}
+    <div class="muted" style="font-size:12.5px;margin-top:8px;">${escapeHtml(s.category)} · ${escapeHtml(s.bottleType)} · Memo ${escapeHtml(s.memoNumber)}${s.orderedBy?` · Ordered by ${escapeHtml(s.orderedBy)}`:''}${s.collectedAt?` · Collected ${fmtDate(s.collectedAt)}`:''}</div>
     <div class="actions-row" style="margin-top:10px;">
-      ${anyReceived? `<button class="btn btn-sm" onclick="loadSpecimenToAnalyser('${s.specimenNumber}')">Load Sample to Analyser</button>`:''}
+      ${anyReceived && hasCapability('process')? `<button class="btn btn-sm btn-outline" onclick="loadSpecimenToAnalyser('${s.specimenNumber}')">Mark as loaded to analyser</button>`:''}
+      ${normalToValidate.length>1 && hasCapability('certify')? `<button class="btn btn-sm" onclick="certifyNormalResults()">Validate ${normalToValidate.length} normal results</button>`:''}
     </div>
     ${s.tests.map(t=>renderProcessingTestRow(s, t)).join('')}
   </div>`;
 }
+// An analyser that asks the LIS for its orders does this by itself; the button is for instruments
+// that are loaded by hand.
 async function loadSpecimenToAnalyser(specimenNumber){
   await withErrorToast(async ()=>{
-    analyserScanResult = await api.loadSpecimenAnalyser(specimenNumber);
+    await api.loadSpecimenAnalyser(specimenNumber);
+    analyserScanResult = await api.getSpecimen(specimenNumber);
     await render();
-    showToast('Specimen barcode read at the analyser — test orders transmitted from the LIS.');
+    showToast('Marked as loaded to the analyser.');
   });
 }
-// Handles all four post-acceptance stages in one place — Received (manual/culture entry),
-// Processing (submit from analyser), Interfaced (certify), Certified (read-only) — absorbing what
-// used to be a separate Result Entry & Validation tab.
+// Handles all four post-acceptance stages in one place — Received / Loaded to Analyser (enter a
+// result by hand, or the culture form), Interfaced (validate), Certified (read-only).
 function renderProcessingTestRow(s, t){
   const meta = STATUS_META[t.visibleStatus||t.status] || {label:t.status, cls:'pill-grey'};
   const tc = test(t.code);
   const orderId = s.orderId;
+  const unit = escapeHtml(t.unit||(tc?tc.units:'')||'');
+  const range = (tc && s.patient) ? matchRange(tc, s.patient) : null;
+  const rangeText = range ? `Reference ${range.low} – ${range.high} ${escapeHtml(tc.units||'')}` : (tc && !tc.isCulture ? 'No reference range for this age and sex' : '');
+  const previous = t.previous ? `<div class="muted" style="font-size:12px;">Previous: <span class="mono">${escapeHtml(t.previous.value)} ${escapeHtml(t.previous.unit||'')}</span>, ${fmtDate(t.previous.validatedAt)}</div>` : '';
   let body = `<span class="pill ${meta.cls}">${meta.label}</span>`;
+  let under = '';
 
-  if(t.status==='received'){
+  if((t.status==='received' || t.status==='processing') && hasCapability('process')){
     if(tc?.isCulture){
-      body = `<span class="pill ${meta.cls}">${meta.label}</span> <button class="btn btn-sm" onclick="openCultureResultModal('${orderId}','${t.code}')">Enter Culture Result</button>`;
+      body += ` <button class="btn btn-sm" onclick="openCultureResultModal('${orderId}','${t.code}')">Enter culture result</button>`;
     }else{
-      const range = (tc && s.patient) ? matchRange(tc, s.patient) : null;
-      const rangeHint = range ? `<div class="muted" style="font-size:11px;">Expected: ${range.low} – ${range.high} ${tc.units||''}</div>` : '';
-      body = `<span class="pill ${meta.cls}">${meta.label}</span>
-        <input class="result-input" id="mval_${orderId}_${t.code}" placeholder="value">
-        <button class="btn btn-sm btn-outline" onclick="enterManualResult('${orderId}','${t.code}')">Save Result</button>${rangeHint}`;
+      body = `<input class="result-input mono" id="mval_${orderId}_${t.code}" inputmode="decimal" autocomplete="off" style="text-align:right;" aria-label="Result for ${escapeHtml(t.name)}"
+          oninput="previewResultFlag(this,'${t.code}')" onkeydown="if(event.key==='Enter'){event.preventDefault();enterManualResult('${orderId}','${t.code}');}">
+        <span class="mono muted" style="font-size:12.5px;">${unit}</span>
+        <button class="btn btn-sm btn-outline" onclick="enterManualResult('${orderId}','${t.code}')">Save result ↵</button>
+        <span class="live-flag" id="mflag_${orderId}_${t.code}"></span>`;
+      under = `<div class="muted" style="font-size:12px;">${t.status==='processing'?'Loaded to the analyser — its result arrives here by itself. Enter by hand only if the analyser cannot report it. · ':''}${rangeText}</div>${previous}`;
     }
-  }else if(t.status==='processing'){
-    body += ` <input class="result-input" id="val_${orderId}_${t.code}" placeholder="value">
-    <input class="result-input" id="unit_${orderId}_${t.code}" placeholder="unit" value="${escapeHtml(tc?.units||'')}" style="width:76px;">
-    <button class="btn btn-sm btn-outline" onclick="submitAnalyserResult('${orderId}','${t.code}')">Submit from Analyser</button>`;
   }else if(t.status==='interfaced'){
-    const info = (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
-    body = `<span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
+    const info = flagOf(s,t);
+    body = `<span class="mono" style="font-size:15px;font-weight:600;">${escapeHtml(t.value)} ${unit}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>
       ${hasCapability('certify')
-        ? `<button class="btn btn-sm" onclick="certifyResult('${orderId}','${t.code}')">Validate & Certify</button>`
-        : `<span class="muted" style="font-size:11.5px;">Only a Pathologist or Lab Manager can certify</span>`}`;
+        ? `<button class="btn btn-sm" onclick="certifyResult('${orderId}','${t.code}')">Validate result</button>`
+        : `<span class="muted" style="font-size:12px;">Waiting for a Pathologist or Lab Manager to validate</span>`}`;
+    under = `<div class="muted" style="font-size:12px;">${rangeText}${t.enteredBy?` · Entered by ${escapeHtml(t.enteredBy)}, ${fmtDate(t.enteredAt)}`:''}</div>${previous}`;
   }else if(t.status==='completed'){
-    const info = (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
-    body = `<span class="mono">${t.value} ${t.unit||(tc?tc.units:'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${info.flagLabel}</span>
-      <span class="muted" style="font-size:11px;">Certified by ${escapeHtml(t.validatedBy||'')}</span>`;
+    const info = flagOf(s,t);
+    body = `<span class="mono" style="font-size:15px;font-weight:600;">${escapeHtml(t.value)} ${unit}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>`;
+    under = `<div class="muted" style="font-size:12px;">${rangeText}${t.enteredBy?` · Entered by ${escapeHtml(t.enteredBy)}`:''} · Validated by ${escapeHtml(t.validatedBy||'—')}, ${fmtDate(t.validatedAt)}</div>${previous}`;
   }
 
-  return `<div class="test-row"><div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${t.code})</span></div></div><div>${body}</div></div>`;
+  return `<div class="test-row ${t.isStat?'stat-row':''}"><div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${escapeHtml(t.code)})</span>${t.isStat?` <span class="pill pill-crimson">STAT</span>`:''}</div>${under}</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${body}</div></div>`;
 }
-async function submitAnalyserResult(orderId, code){
-  const val = (document.getElementById(`val_${orderId}_${code}`).value||'').trim();
-  const unit = (document.getElementById(`unit_${orderId}_${code}`).value||'').trim();
-  if(val===''){ showToast('Enter a result value.'); return; }
-  await withErrorToast(async ()=>{
-    await api.analyserResult(orderId, code, val, unit);
-    analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
-    await render();
-    showToast(`Result received from the analyser for ${code} — unit matched, sample now Interfaced.`);
-  });
+// Shows what the value means while it is being typed — before it is saved, not after.
+function previewResultFlag(input, code){
+  const out = document.getElementById(input.id.replace('mval_','mflag_'));
+  const s = analyserScanResult, tc = test(code);
+  if(!out || !s || !tc) return;
+  const value = (input.value||'').trim();
+  if(!value){ out.innerHTML = ''; return; }
+  const info = evalResult(tc, s.patient, value);
+  if(Number.isNaN(numericValue(value))){
+    const numeric = (tc.refRanges||[]).length || tc.criticalLow!=null || tc.criticalHigh!=null;
+    out.innerHTML = numeric ? `<span style="color:var(--amber);font-weight:600;">Not a number — check before saving</span>` : '';
+    return;
+  }
+  out.innerHTML = info.flag==='N/A' ? '' : `<span class="flag-${info.flag}">${escapeHtml(info.flagLabel)}</span>`;
 }
-
 async function enterManualResult(orderId, code){
   const val = (document.getElementById(`mval_${orderId}_${code}`).value||'').trim();
-  if(val===''){ showToast('Enter a value first.'); return; }
+  if(val===''){ showToast('Type a result first.'); return; }
+  const s = analyserScanResult, tc = test(code);
+  const info = (s && tc) ? evalResult(tc, s.patient, val) : {flag:'N/A'};
+  // A critical value is confirmed before it is saved: a slipped decimal point is the usual cause.
+  if(info.flag==='CriticalHigh' || info.flag==='CriticalLow'){
+    const t = s.tests.find(x=>x.code===code);
+    const ok = await confirmAction({
+      title: `${info.flagLabel} — save this result?`,
+      body: `<b>${escapeHtml(t?.name||code)}</b> for <b>${escapeHtml(s.patient?.name||'this patient')}</b>: <span class="mono" style="font-size:15px;">${escapeHtml(val)} ${escapeHtml(tc.units||'')}</span>.<br>Check the value. Once saved, the clinician must be notified before it can be validated.`,
+      confirmLabel: 'Save critical result',
+    });
+    if(!ok) return;
+  }
   await withErrorToast(async ()=>{
     await api.manualResult(orderId, code, val);
     if(analyserScanResult) analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
-    await render();
+    await render(); // the cursor lands in the next empty result field
+    showToast(`Result saved for ${tc?tc.name:code} — waiting for validation.`);
   });
 }
 
@@ -1717,12 +1998,9 @@ function renderCultureModal(){
     const panelRows = (org.panelAntibiotics||[]).map(ab=>`
       <div class="test-row" style="padding:4px 0;">
         <span style="font-size:12.5px;">${escapeHtml(ab.name)}</span>
-        <select onchange="setSensitivity(${i},'${ab.id}',this.value)" style="width:90px;">
-          <option value="">—</option>
-          <option value="S" ${org.sensitivities[ab.id]==='S'?'selected':''}>S</option>
-          <option value="I" ${org.sensitivities[ab.id]==='I'?'selected':''}>I</option>
-          <option value="R" ${org.sensitivities[ab.id]==='R'?'selected':''}>R</option>
-        </select>
+        <div class="sir" tabindex="0" role="radiogroup" aria-label="${escapeHtml(ab.name)} — press S, I or R" data-org="${i}" data-ab="${ab.id}" onkeydown="sirKey(event,this)">
+          ${['S','I','R'].map(v=>`<button type="button" tabindex="-1" role="radio" aria-checked="${org.sensitivities[ab.id]===v}" class="${org.sensitivities[ab.id]===v?'on':''}" onclick="sirPick(this.parentElement,'${v}')">${v}</button>`).join('')}
+        </div>
       </div>`).join('');
     return `<div class="card" style="margin-top:10px;padding:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1732,14 +2010,15 @@ function renderCultureModal(){
       <div class="field" style="margin-top:8px;margin-bottom:8px;"><label>Colony Count (optional)</label>
         <input value="${escapeHtml(org.colonyCount)}" placeholder="e.g. > 100,000 CFU/mL" onchange="cultureModalState.organisms[${i}].colonyCount=this.value">
       </div>
-      <label class="muted" style="font-size:11px;">Antibiotic Sensitivity</label>
+      <label class="muted" style="font-size:12px;">Antibiotic sensitivity — click, or press S, I or R</label>
       ${panelRows || '<p class="muted" style="font-size:12px;">No standard panel for this organism yet — set one under Settings → Organisms.</p>'}
     </div>`;
   }).join('');
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:560px;">
-      <div class="modal-head"><h2>Culture & Sensitivity — ${escapeHtml(tc?.name||st.code)}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-head"><h2>Culture & Sensitivity — ${escapeHtml(tc?.name||st.code)}</h2><button class="modal-close" aria-label="Close" onclick="closeModal()">✕</button></div>
+      ${analyserScanResult && analyserScanResult.orderId===st.orderId ? patientBar(analyserScanResult.patient, {patientType:analyserScanResult.patientType, wardName:analyserScanResult.wardName, right:`<span class="mono" style="font-size:13px;">${escapeHtml(analyserScanResult.specimenNumber)}</span>`}) : ''}
       <div class="field"><label>Growth Status</label>
         <select id="cult_growth" onchange="cultureModalState.growthStatus=this.value;renderCultureModal();">
           <option value="no_growth" ${st.growthStatus==='no_growth'?'selected':''}>No Growth</option>
@@ -1771,6 +2050,27 @@ async function addOrganismRow(){
   renderCultureModal();
 }
 function removeOrganismRow(i){ cultureModalState.organisms.splice(i,1); renderCultureModal(); }
+// Clicking the chosen letter again clears it. Keys S / I / R set it and move to the next antibiotic;
+// Backspace or Delete clears.
+function sirPick(group, value){
+  const i = Number(group.dataset.org), ab = group.dataset.ab;
+  const current = cultureModalState.organisms[i].sensitivities[ab];
+  setSensitivity(i, ab, current===value ? '' : value);
+  const now = cultureModalState.organisms[i].sensitivities[ab];
+  group.querySelectorAll('button').forEach(b=>{ const on = b.textContent===now; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+}
+function sirKey(e, group){
+  const k = e.key.toUpperCase();
+  if(['S','I','R'].includes(k)){
+    e.preventDefault();
+    if(cultureModalState.organisms[Number(group.dataset.org)].sensitivities[group.dataset.ab]!==k) sirPick(group, k);
+    const all = [...document.querySelectorAll('#modalRoot .sir')]; const next = all[all.indexOf(group)+1]; if(next) next.focus();
+  }else if(e.key==='Backspace' || e.key==='Delete'){
+    e.preventDefault();
+    const cur = cultureModalState.organisms[Number(group.dataset.org)].sensitivities[group.dataset.ab];
+    if(cur) sirPick(group, cur);
+  }
+}
 function setSensitivity(i, antibioticId, value){
   if(value) cultureModalState.organisms[i].sensitivities[antibioticId] = value;
   else delete cultureModalState.organisms[i].sensitivities[antibioticId];
@@ -1792,7 +2092,25 @@ async function saveCultureResultModal(){
   });
 }
 
-async function certifyResult(orderId, code){
+async function certifyResult(orderId, code, skipConfirm){
+  const s = analyserScanResult;
+  const t = s && s.orderId===orderId ? s.tests.find(x=>x.code===code) : null;
+  // A normal result validates in one click. An abnormal one is shown back first, with the last
+  // result for comparison — validation cannot be undone from this screen.
+  if(t && !skipConfirm){
+    const info = flagOf(s,t);
+    if(info.flag!=='Normal'){
+      const ok = await confirmAction({
+        title: 'Validate this result?',
+        body: `<b>${escapeHtml(t.name)}</b> for <b>${escapeHtml(s.patient?.name||'this patient')}</b> (Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')}):<br>
+          <span class="mono" style="font-size:16px;font-weight:600;">${escapeHtml(t.value)} ${escapeHtml(t.unit||'')}</span> ${info.flagLabel?`<span class="flag-${info.flag}">${escapeHtml(info.flagLabel)}</span>`:''}<br>
+          <span class="muted">${escapeHtml(info.rangeText||'')}${t.previous?` · Previous ${escapeHtml(t.previous.value)} ${escapeHtml(t.previous.unit||'')}, ${fmtDate(t.previous.validatedAt)}`:' · No previous result on record here'}</span><br>
+          It will be released on the report under your name and cannot be changed from this screen.`,
+        confirmLabel: 'Validate result', danger:false,
+      });
+      if(!ok) return;
+    }
+  }
   await withErrorToast(async ()=>{
     let result;
     try{
@@ -1808,15 +2126,44 @@ async function certifyResult(orderId, code){
     }
     if(analyserScanResult) analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
     await render();
-    showToast(`Result certified by ${session.user.name} — status now Completed.`);
+    showToast(`Result validated by ${session.user.name} — now on the report.`);
     if(result.reflexSuggestions && result.reflexSuggestions.length){
       renderReflexSuggestionModal(orderId, result.reflexSuggestions);
     }
   });
 }
+// Validates every NORMAL result on the open specimen in one action. Abnormal and critical results
+// are left for individual review, on purpose.
+async function certifyNormalResults(){
+  const s = analyserScanResult; if(!s) return;
+  const normal = s.tests.filter(t=>t.status==='interfaced' && flagOf(s,t).flag==='Normal');
+  if(!normal.length) return;
+  const ok = await confirmAction({
+    title: `Validate ${normal.length} normal results?`,
+    body: `For <b>${escapeHtml(s.patient?.name||'this patient')}</b> (Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')}), specimen <span class="mono">${escapeHtml(s.specimenNumber)}</span>:<br>
+      ${normal.map(t=>`${escapeHtml(t.name)}: <span class="mono">${escapeHtml(t.value)} ${escapeHtml(t.unit||'')}</span>`).join('<br>')}<br>
+      <span class="muted">Abnormal and critical results are not included — validate those one by one.</span>`,
+    confirmLabel: `Validate ${normal.length} results`, danger:false,
+  });
+  if(!ok) return;
+  let done = 0; const suggestions = [];
+  try{
+    for(const t of normal){
+      const result = await api.certify(s.orderId, t.code);
+      done++;
+      (result.reflexSuggestions||[]).forEach(x=>suggestions.push(x));
+    }
+  }catch(e){
+    showToast(`${done} of ${normal.length} validated, then stopped: ${e.message}`, 'error');
+  }
+  analyserScanResult = await api.getSpecimen(s.specimenNumber).catch(()=>analyserScanResult);
+  await render();
+  if(done===normal.length) showToast(`${done} normal results validated by ${session.user.name}.`);
+  if(suggestions.length) renderReflexSuggestionModal(s.orderId, suggestions);
+}
 function renderReflexSuggestionModal(orderId, suggestions){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:440px;">
       <div class="modal-head"><h2>Reflex Suggestion${suggestions.length>1?'s':''}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">Based on this result, consider adding:</p>
@@ -1879,7 +2226,7 @@ function renderCriticalTab(critical, log){
         </div>
       </div>
     </div>`;
-  }).join('') : `<div class="card empty"><div class="big">✅</div>No critical values awaiting notification.</div>`;
+  }).join('') : `<div class="card empty">No critical values awaiting notification.</div>`;
 
   const notified = log.filter(l=>l.notified);
   const onTime = notified.filter(l=>l.onTime).length;
@@ -1914,28 +2261,50 @@ function renderCriticalTab(critical, log){
     </div>`;
 }
 let criticalModalState = null; // { orderId, code, certifyAfter }
+let lastCriticalItems = [];
+// Everything the caller needs to read out: found in the critical worklist, or on the open specimen.
+function criticalContext(orderId, code){
+  const c = lastCriticalItems.find(x=>x.orderId===orderId && x.code===code);
+  if(c) return { patient:c.patient, name:c.name, value:c.value, unit:c.unit, orderedBy:c.orderedBy, patientType:c.patientType, wardName:c.wardName };
+  const s = analyserScanResult;
+  const t = s && s.orderId===orderId ? s.tests.find(x=>x.code===code) : null;
+  if(t) return { patient:s.patient, name:t.name, value:t.value, unit:t.unit, orderedBy:s.orderedBy, patientType:s.patientType, wardName:s.wardName };
+  return null;
+}
 function openCriticalNotificationModal(orderId, code, flagLabel, certifyAfter){
   criticalModalState = { orderId, code, certifyAfter: !!certifyAfter };
+  const ctx = criticalContext(orderId, code);
+  const what = ctx ? `
+      ${patientBar(ctx.patient, {patientType:ctx.patientType, wardName:ctx.wardName})}
+      <div style="border:1.5px solid var(--crimson);border-radius:9px;padding:10px 14px;margin-bottom:12px;">
+        <div style="font-size:13px;">${escapeHtml(ctx.name)} <span class="mono muted">(${escapeHtml(code)})</span></div>
+        <div style="margin-top:4px;"><span class="mono" style="font-size:20px;font-weight:700;">${escapeHtml(ctx.value)} ${escapeHtml(ctx.unit||'')}</span> <span class="flag-${/LOW/.test(flagLabel||'')?'CriticalLow':'CriticalHigh'}">${escapeHtml(flagLabel||'CRITICAL')}</span></div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px;">Ordered by <b>${escapeHtml(ctx.orderedBy||'—')}</b></div>
+      </div>` : `<p class="muted" style="font-size:12.5px;">Test <span class="mono">${escapeHtml(code)}</span> — ${escapeHtml(flagLabel||'CRITICAL')}</p>`;
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
-    <div class="modal" style="max-width:440px;">
-      <div class="modal-head"><h2>⚠ ${escapeHtml(flagLabel||'CRITICAL')} — Record Notification</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
-      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Test <span class="mono">${escapeHtml(code)}</span>. Log every attempt — including one that did not get through.${certifyAfter?' The result is certified as soon as someone has been reached.':''}</p>
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head"><h2>Record critical value notification</h2><button class="modal-close" aria-label="Close" onclick="closeModal()">✕</button></div>
+      ${what}
+      <p class="muted" style="font-size:12.5px;margin-top:0;">Log every attempt — including one that did not get through.${certifyAfter?' The result is validated as soon as someone has been reached.':''}</p>
       <div class="field"><label>Outcome</label>
         <select id="crit_outcome" onchange="syncCriticalModal()">
           <option value="reached">Reached — result given</option>
           <option value="not_reached">Not reached — no answer / unavailable</option>
         </select></div>
-      <div class="field"><label>Person called</label><input id="crit_person" placeholder="Name of the clinician or nurse"></div>
-      <div class="field"><label>Their role (optional)</label><input id="crit_role" placeholder="e.g. Ordering clinician, Ward nurse"></div>
+      <div class="grid grid-2">
+        <div class="field"><label>Person called</label><input id="crit_person" placeholder="Name of the clinician or nurse"></div>
+        <div class="field"><label>Their role (optional)</label><input id="crit_role" placeholder="Ordering clinician, ward nurse…"></div>
+      </div>
       <div class="field"><label>Method</label>
         <select id="crit_method"><option value="phone">Phone</option><option value="in_person">In person</option></select></div>
       <div class="field" id="crit_readback_wrap"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="crit_readback"> Read-back confirmed — they repeated the result correctly</label></div>
-      <div class="field"><label>Note (optional)</label><input id="crit_note" placeholder="e.g. will review patient now"></div>
-      <div class="actions-row"><button class="btn btn-danger" onclick="saveCriticalNotification()">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+      <div class="field"><label>Note (optional)</label><input id="crit_note"></div>
+      <div class="actions-row"><button class="btn btn-danger" onclick="saveCriticalNotification()">Save notification record</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
     </div>
   </div>`;
   syncCriticalModal();
+  const person = document.getElementById('crit_person'); if(person) person.focus();
 }
 function syncCriticalModal(){
   const reached = document.getElementById('crit_outcome').value==='reached';
@@ -1957,15 +2326,15 @@ async function saveCriticalNotification(){
     await api.recordCriticalNotification(st.orderId, st.code, data);
     closeModal();
     if(outcome==='reached' && st.certifyAfter){
-      await certifyResult(st.orderId, st.code); // renders and toasts itself
+      await certifyResult(st.orderId, st.code, true); // already reviewed; renders and toasts itself
       return;
     }
     await render();
-    showToast(outcome==='reached' ? 'Notification recorded — the result can now be certified.' : 'Attempt logged — still awaiting a successful notification.');
+    showToast(outcome==='reached' ? 'Notification recorded — the result can now be validated.' : 'Attempt logged — still awaiting a successful notification.');
   });
 }
 function renderIncomingTab(orders, f){
-  if(!orders.length) return `<div class="card empty"><div class="big">📥</div>No referred samples in transit to this facility.</div>`;
+  if(!orders.length) return `<div class="card empty">No referred samples in transit to this facility.</div>`;
   return orders.map(o=>{
     const p = o.patient;
     const referredTests = o.tests.filter(t=>t.referred && t.performingFacilityId===f.id && t.status==='awaiting_receipt');
@@ -2044,7 +2413,7 @@ async function viewReportsInner(){
     const doneCount = o.tests.filter(t=>t.status==='completed').length;
     const collectedCount = o.tests.filter(t=>t.status!=='deselected').length;
     const anyDone = doneCount>0;
-    return `<tr style="cursor:pointer;" onclick="openReportPdf('${o.id}')">
+    return `<tr>
       <td class="mono">${escapeHtml(o.memoNumber||o.id)}${o.viewerIsOrigin?'':`<div class="muted" style="font-family:inherit;font-size:11px;">Referred from ${escapeHtml(fac(o.orderingFacilityId).name)}</div>`}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
       <td>${doneCount}/${collectedCount} completed</td>
       <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openReportPdf('${o.id}')">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
@@ -2055,21 +2424,21 @@ async function viewReportsInner(){
       <div class="grid grid-4">
         <div class="field" style="margin-bottom:0;"><label>Search</label>
           <input id="repSearch" value="${escapeHtml(reportSearch)}" placeholder="Patient, Hospital No., ID No., Memo No., or Specimen No."
-            oninput="reportSearch=this.value;render();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
+            oninput="reportSearch=this.value;renderCached();const el=document.getElementById('repSearch');if(el)el.focus();"></div>
         <div class="field" style="margin-bottom:0;"><label>Category</label>
-          <select onchange="reportCategoryFilter=this.value;render();">
+          <select onchange="reportCategoryFilter=this.value;renderCached();">
             <option value="">All categories</option>
             ${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${reportCategoryFilter===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
           </select></div>
         <div class="field" style="margin-bottom:0;"><label>Status</label>
-          <select onchange="reportStatusFilter=this.value;render();">
+          <select onchange="reportStatusFilter=this.value;renderCached();">
             <option value="">All statuses</option>
             <option value="not_completed" ${reportStatusFilter==='not_completed'?'selected':''}>Not Yet Completed</option>
             <option value="partial" ${reportStatusFilter==='partial'?'selected':''}>Partially Completed</option>
             <option value="fully_completed" ${reportStatusFilter==='fully_completed'?'selected':''}>Fully Completed</option>
           </select></div>
         <div class="field" style="margin-bottom:0;"><label>Collected Date</label>
-          <input type="date" value="${reportCollectedDateFilter}" onchange="reportCollectedDateFilter=this.value;render();"></div>
+          <input type="date" value="${reportCollectedDateFilter}" onchange="reportCollectedDateFilter=this.value;renderCached();"></div>
       </div>
       <p class="muted" style="font-size:11px;margin-top:8px;">Collected Date is useful when a walk-in patient knows the date but not their memo number.</p>
     </div>
@@ -2110,30 +2479,35 @@ function viewHistoryInner(){
       <div class="field" style="max-width:420px;">
         <label>Search patient by Name, Hospital No., or ID No.</label>
         <input id="histSearch" value="${escapeHtml(histSearchQuery)}" placeholder="Type a name, hospital no., or ID…"
-          oninput="histSearchQuery=this.value;searchHistory();">
+          oninput="histSearchQuery=this.value;clearTimeout(histTimer);histTimer=setTimeout(searchHistory,350);"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();clearTimeout(histTimer);searchHistory();}">
       </div>
       <div id="histResults"></div>
     </div>
   `;
 }
+let histTimer = null, histSeq = 0;
 async function searchHistory(){
   const q = histSearchQuery.trim();
   const root = document.getElementById('histResults');
-  if(!q){ root.innerHTML=''; return; }
+  if(!root) return;
+  const seq = ++histSeq;
+  if(q.length<2){ root.innerHTML = q ? `<p class="muted">Type at least 2 characters.</p>` : ''; return; }
   root.innerHTML = `<p class="muted">Searching…</p>`;
   let results;
   try{ results = await api.history(q); }
-  catch(e){ root.innerHTML = `<p style="color:var(--crimson);">${escapeHtml(e.message)}</p>`; return; }
-  if(!results.length){ root.innerHTML = `<p class="muted">No matching patients.</p>`; return; }
+  catch(e){ if(seq===histSeq) root.innerHTML = `<p style="color:var(--crimson);">${escapeHtml(e.message)}</p>`; return; }
+  if(seq!==histSeq) return; // a newer search has been typed since
+  if(!results.length){ root.innerHTML = `<p class="muted">No patient matches “${escapeHtml(q)}” at this facility. Check the spelling, or search by Hospital No.</p>`; return; }
   root.innerHTML = results.map(({patient:p, orders})=>{
     const entries = orders.map(o=>{
       const rows = o.tests.map(t=>{
         if(t.status){
           return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</span><span class="pill ${(STATUS_META[t.status]||{cls:'pill-grey'}).cls}">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
         }
-        return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''} <span class="mono muted">(${t.code})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
-          <span class="mono flag-${(t.flag||'').replace(' ','')}">${t.value} ${t.unit||''} ${t.flag && t.flag!=='Normal' && t.flag!=='N/A'?`— ${t.flagLabel}`:''}</span></div>
-          <div class="muted" style="font-size:11px;margin:-4px 0 6px;">Ref: ${t.rangeText||''} · Certified by ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>`;
+        return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''} <span class="mono muted">(${escapeHtml(t.code)})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
+          <span class="mono flag-${(t.flag||'').replace(' ','')}">${escapeHtml(t.value)} ${escapeHtml(t.unit||'')} ${t.flag && t.flag!=='Normal' && t.flag!=='N/A'?`— ${escapeHtml(t.flagLabel)}`:''}</span></div>
+          <div class="muted" style="font-size:12px;margin:-4px 0 6px;">Ref: ${escapeHtml(t.rangeText||'')} · Certified by ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>`;
       }).join('');
       const visitType = o.patientType==='inpatient'? `In-Patient${o.wardName?' · '+escapeHtml(o.wardName):''}` : o.patientType==='outpatient'? 'Out-Patient' : null;
       return `<div class="order-card">
@@ -2143,7 +2517,7 @@ async function searchHistory(){
       </div>`;
     }).join('');
     return `<div style="margin-top:14px;"><h2>${escapeHtml(p.name)} <span class="mono muted" style="font-weight:400;">(${escapeHtml(p.hospitalNumber||p.id)})</span></h2>
-      <p class="muted" style="margin-top:-8px;font-size:12.5px;">${p.dob} · ${calcAge(p.dob)}y · ${p.sex}</p>
+      <p class="muted" style="margin-top:-8px;font-size:12.5px;">Born ${fmtDob(p.dob)} · ${fmtAge(p.dob)} · ${escapeHtml(SEX_LABELS[p.sex]||p.sex||'—')}</p>
       ${entries}</div>`;
   }).join('');
 }
@@ -2157,28 +2531,46 @@ let organismSearch = '';
 let antibioticSearch = '';
 let usersFacilityFilter = null;
 let wardsFacilityFilter = null;
+// Settings sections grouped by the job they belong to. `show` decides who sees each one.
+const SETTINGS_GROUPS = [
+  {label:'Test catalog', tabs:[
+    {id:'catalog', label:'Tests', show:()=>true},
+    {id:'categories', label:'Categories', show:()=>hasCapability('manage_catalog')},
+    {id:'panels', label:'Panels', show:()=>hasCapability('manage_catalog')},
+    {id:'aliases', label:'HIS aliases', show:()=>hasCapability('manage_catalog')},
+    {id:'reflex', label:'Reflex rules', show:()=>hasCapability('manage_catalog')},
+    {id:'rejectreasons', label:'Rejection reasons', show:()=>hasCapability('manage_catalog')},
+  ]},
+  {label:'Microbiology', tabs:[
+    {id:'organisms', label:'Organisms', show:()=>hasCapability('manage_catalog')},
+    {id:'antibiotics', label:'Antibiotics', show:()=>hasCapability('manage_catalog')},
+  ]},
+  {label:'People and wards', tabs:[
+    {id:'users', label:'Users and roles', show:()=>hasCapability('manage_users')},
+    {id:'wards', label:'Wards', show:()=>hasCapability('manage_users')},
+    {id:'account', label:'My account', show:()=>true},
+  ]},
+  {label:'Labs and instruments', tabs:[
+    {id:'instruments', label:'Instruments', show:()=>hasCapability('manage_users')},
+    {id:'admin', label:'Labs', show:()=>hasCapability('manage_labs')},
+    {id:'networks', label:'Network mapping', show:()=>hasCapability('manage_labs')},
+    {id:'connection', label:'Connection', show:()=>isRegional()},
+  ]},
+  {label:'Audit log', tabs:[
+    {id:'audit', label:'Audit log', show:()=>hasCapability('view_audit')},
+  ]},
+];
 async function viewSettings(){
   const f = fac(session.user.facilityId);
+  const groups = SETTINGS_GROUPS.map(g=>({label:g.label, tabs:g.tabs.filter(t=>t.show())})).filter(g=>g.tabs.length);
+  let group = groups.find(g=>g.tabs.some(t=>t.id===settingsTab));
+  if(!group){ group = groups[0]; settingsTab = group.tabs[0].id; }
   return `
     <div class="pagehead"><h1>Settings</h1><p>Configuration for ${escapeHtml(f.name)}.</p></div>
     <div class="tabs">
-      <div class="tab ${settingsTab==='catalog'?'active':''}" onclick="settingsTab='catalog';render();">Test Catalog</div>
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='categories'?'active':''}" onclick="settingsTab='categories';render();">Categories</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='panels'?'active':''}" onclick="settingsTab='panels';render();">Panels</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='aliases'?'active':''}" onclick="settingsTab='aliases';render();">HIS Aliases</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='reflex'?'active':''}" onclick="settingsTab='reflex';render();">Reflex Rules</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='organisms'?'active':''}" onclick="settingsTab='organisms';render();">Organisms</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='antibiotics'?'active':''}" onclick="settingsTab='antibiotics';render();">Antibiotics</div>`:''}
-      ${hasCapability('manage_catalog')? `<div class="tab ${settingsTab==='rejectreasons'?'active':''}" onclick="settingsTab='rejectreasons';render();">Rejection Reasons</div>`:''}
-      ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='admin'?'active':''}" onclick="settingsTab='admin';render();">Admin — Manage Labs</div>`:''}
-      ${hasCapability('manage_labs')? `<div class="tab ${settingsTab==='networks'?'active':''}" onclick="settingsTab='networks';render();">Network Mapping</div>`:''}
-      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='users'?'active':''}" onclick="settingsTab='users';render();">Users</div>`:''}
-      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='wards'?'active':''}" onclick="settingsTab='wards';render();">Wards</div>`:''}
-      ${hasCapability('manage_users')? `<div class="tab ${settingsTab==='instruments'?'active':''}" onclick="settingsTab='instruments';render();">Instruments</div>`:''}
-      ${hasCapability('view_audit')? `<div class="tab ${settingsTab==='audit'?'active':''}" onclick="settingsTab='audit';render();">Audit Log</div>`:''}
-      <div class="tab ${settingsTab==='account'?'active':''}" onclick="settingsTab='account';render();">My Account</div>
-      ${isRegional()? `<div class="tab ${settingsTab==='connection'?'active':''}" onclick="settingsTab='connection';render();">Connection</div>`:''}
+      ${groups.map(g=>`<div class="tab ${g===group?'active':''}" onclick="settingsTab='${g.tabs[0].id}';render();">${g.label}</div>`).join('')}
     </div>
+    ${group.tabs.length>1? `<div class="subtabs">${group.tabs.map(t=>`<div class="subtab ${settingsTab===t.id?'active':''}" onclick="settingsTab='${t.id}';render();">${t.label}</div>`).join('')}</div>`:''}
     ${settingsTab==='catalog'? viewCatalog()
       : settingsTab==='categories'? viewCategories()
       : settingsTab==='panels'? await viewPanels()
@@ -2205,7 +2597,7 @@ async function viewNetworks(){
     <td>${escapeHtml(n.facilityName)}</td>
     <td>${escapeHtml(n.label)}</td>
     <td class="mono">${escapeHtml(n.cidr)}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteFacilityNetwork('${n.id}')">Remove</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteFacilityNetwork('${n.id}',this)">Remove</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2221,7 +2613,7 @@ async function viewNetworks(){
 async function openNetworkModal(){
   const facilities = await api.facilities();
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>New Network Mapping</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Facility</label>
@@ -2245,8 +2637,9 @@ async function saveNetwork(){
     showToast('Network mapping saved.');
   });
 }
-async function deleteFacilityNetwork(id){
-  if(!confirm('Remove this network mapping?')) return;
+async function deleteFacilityNetwork(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Remove this network mapping?`, body:`<b>${escapeHtml(name||'This network')}</b> will no longer be recognised at login — staff there will be asked to choose their facility.`, confirmLabel:`Remove mapping`})) return;
   await withErrorToast(async ()=>{
     await api.deleteFacilityNetwork(id);
     await render();
@@ -2350,7 +2743,7 @@ async function viewUsers(){
     <td>${u.facilityAccess.map(a=>escapeHtml(a.facilityName)).join(', ')}${u.facilityAccess.length>1?` <span class="pill pill-teal" style="font-size:10px;">picks at login</span>`:''}</td>
     <td style="white-space:nowrap;">
       <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}','${targetFacilityId}')">Edit</button>
-      ${u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Remove</button>`:''}
+      ${u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}',this)">Remove</button>`:''}
     </td>
   </tr>`).join('');
   return `
@@ -2368,37 +2761,77 @@ async function viewUsers(){
 // Which tasks each role can perform — Admin only. A capability-based gate wouldn't be safe here,
 // since a role could then grant itself more power; this matches the backend's raw role==='admin'
 // check rather than hasCapability().
+let pendingRoleCaps = null; // { role: Set(capabilities) } while there are unsaved ticks
+function roleCapChanges(){
+  if(!pendingRoleCaps) return [];
+  const out = [];
+  roleCapabilitiesCache.roles.forEach(r=>{
+    const now = pendingRoleCaps[r.role]; if(!now) return;
+    const label = c => (roleCapabilitiesCache.allCapabilities.find(x=>x.capability===c)||{label:c}).label;
+    const added = [...now].filter(c=>!r.capabilities.includes(c)), removed = r.capabilities.filter(c=>!now.has(c));
+    if(added.length || removed.length) out.push({role:r.role, label:r.label, caps:[...now], added:added.map(label), removed:removed.map(label)});
+  });
+  return out;
+}
 async function renderRolePermissions(){
   const data = await api.roleCapabilities();
   roleCapabilitiesCache = data; // keep the live cache in sync with what's shown here
+  const has = (r,c) => pendingRoleCaps && pendingRoleCaps[r.role] ? pendingRoleCaps[r.role].has(c) : r.capabilities.includes(c);
   const rows = data.roles.map(r=>`<tr>
     <td style="font-weight:600;">${escapeHtml(r.label)}</td>
     ${data.allCapabilities.map(c=>`<td style="text-align:center;">
-      <input type="checkbox" data-role="${r.role}" data-cap="${c.capability}" ${r.capabilities.includes(c.capability)?'checked':''} onchange="toggleRoleCapability(this)">
+      <input type="checkbox" aria-label="${escapeHtml(r.label)} — ${escapeHtml(c.label)}" data-role="${r.role}" data-cap="${c.capability}" ${has(r,c.capability)?'checked':''} onchange="toggleRoleCapability(this)">
     </td>`).join('')}
   </tr>`).join('');
+  const changes = roleCapChanges();
   return `
     <div class="card" style="margin-top:20px;">
-      <h2>Role Permissions</h2>
-      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Which tasks each role is allowed to perform. A role can hold any number of tasks — check every box that applies. Changes save immediately.</p>
+      <h2>Role permissions</h2>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Which tasks each role is allowed to perform. Tick or untick, then save — nothing changes until you do.</p>
       <div style="overflow-x:auto;">
         <table>
           <thead><tr><th>Role</th>${data.allCapabilities.map(c=>`<th style="font-size:11px;">${escapeHtml(c.label)}</th>`).join('')}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
+      <div class="actions-row" id="roleCapActions">
+        <button class="btn" ${changes.length?'':'disabled'} onclick="saveRoleCapabilities()">Save permission changes${changes.length?` (${changes.length} role${changes.length===1?'':'s'})`:''}</button>
+        ${changes.length? `<button class="btn btn-outline" onclick="pendingRoleCaps=null;render();">Discard changes</button>`:''}
+      </div>
     </div>
   `;
 }
-async function toggleRoleCapability(checkbox){
+function toggleRoleCapability(checkbox){
   const role = checkbox.dataset.role;
-  const entry = roleCapabilitiesCache.roles.find(r=>r.role===role);
-  const current = new Set(entry ? entry.capabilities : []);
-  if(checkbox.checked) current.add(checkbox.dataset.cap); else current.delete(checkbox.dataset.cap);
+  pendingRoleCaps = pendingRoleCaps || {};
+  if(!pendingRoleCaps[role]){
+    const entry = roleCapabilitiesCache.roles.find(r=>r.role===role);
+    pendingRoleCaps[role] = new Set(entry ? entry.capabilities : []);
+  }
+  if(checkbox.checked) pendingRoleCaps[role].add(checkbox.dataset.cap); else pendingRoleCaps[role].delete(checkbox.dataset.cap);
+  const changes = roleCapChanges();
+  const row = document.getElementById('roleCapActions');
+  if(row) row.innerHTML = `<button class="btn" ${changes.length?'':'disabled'} onclick="saveRoleCapabilities()">Save permission changes${changes.length?` (${changes.length} role${changes.length===1?'':'s'})`:''}</button>
+    ${changes.length? `<button class="btn btn-outline" onclick="pendingRoleCaps=null;render();">Discard changes</button>`:''}`;
+}
+async function saveRoleCapabilities(){
+  const changes = roleCapChanges();
+  if(!changes.length) return;
+  const mine = changes.find(c=>c.role===session.user.role && c.removed.length);
+  const ok = await confirmAction({
+    title: 'Save these permission changes?',
+    body: changes.map(c=>`<b>${escapeHtml(c.label)}</b>: ${[c.added.length?`gains ${c.added.map(escapeHtml).join(', ')}`:'', c.removed.length?`loses ${c.removed.map(escapeHtml).join(', ')}`:''].filter(Boolean).join('; ')}`).join('<br>')
+      + `<br><span class="muted">Takes effect at once for everyone with ${changes.length===1?'that role':'those roles'}.</span>`
+      + (mine? `<br><b style="color:var(--crimson);">This removes permissions from your own role.</b>`:''),
+    confirmLabel: 'Save changes', danger: !!mine,
+  });
+  if(!ok) return;
   await withErrorToast(async ()=>{
-    await api.updateRoleCapabilities(role, Array.from(current));
+    for(const c of changes) await api.updateRoleCapabilities(c.role, c.caps);
+    pendingRoleCaps = null;
     roleCapabilitiesCache = await api.roleCapabilities();
-    showToast(`${ROLE_LABELS[role]||role} permissions updated.`);
+    await render();
+    showToast('Role permissions saved.');
   });
 }
 async function openUserModal(userId, facilityId){
@@ -2426,7 +2859,7 @@ async function openUserModal(userId, facilityId){
     </div>
   ` : `<p class="muted" style="font-size:11.5px;margin-top:14px;">You can grant access to additional facilities after creating this user.</p>`;
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:440px;">
       <div class="modal-head"><h2>${existing?'Edit User':'New User'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Name</label><input id="u_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Aminath Nazima"></div>
@@ -2450,7 +2883,7 @@ async function grantFacilityAccess(userId, currentFacilityFilter){
   });
 }
 async function revokeFacilityAccess(userId, facilityId, currentFacilityFilter){
-  if(!confirm('Revoke access to this facility for this user?')) return;
+  if(!await confirmAction({title:'Revoke facility access?', body:'This user will no longer be able to work at that facility. Their home facility is not affected.', confirmLabel:'Revoke access'})) return;
   await withErrorToast(async ()=>{
     await api.revokeFacilityAccess(userId, facilityId);
     await openUserModal(userId, currentFacilityFilter);
@@ -2476,8 +2909,9 @@ async function saveUser(userId, facilityId){
     showToast('User saved.');
   });
 }
-async function deleteUser(userId){
-  if(!confirm('Remove this user? This cannot be undone.')) return;
+async function deleteUser(userId, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Remove this user?`, body:`<b>${escapeHtml(name||'This user')}</b> will no longer be able to log in. Their name stays on everything they have already done. This cannot be undone.`, confirmLabel:`Remove user`})) return;
   await withErrorToast(async ()=>{
     await api.deleteUser(userId);
     await render();
@@ -2497,7 +2931,7 @@ async function viewWards(){
     </select></div>` : '';
   const rows = wards.map(w=>`<tr>
     <td>${escapeHtml(w.name)}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteWard('${w.id}','${targetFacilityId}')">Remove</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteWard('${w.id}','${targetFacilityId}',this)">Remove</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
@@ -2512,7 +2946,7 @@ async function viewWards(){
 }
 function openWardModal(facilityId){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:380px;">
       <div class="modal-head"><h2>New Ward</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Ward Name</label><input id="ward_name" placeholder="e.g. Medical Ward"></div>
@@ -2530,8 +2964,9 @@ async function saveWard(facilityId){
     showToast('Ward saved.');
   });
 }
-async function deleteWard(id){
-  if(!confirm('Remove this ward?')) return;
+async function deleteWard(id, facilityId, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Remove this ward?`, body:`<b>${escapeHtml(name||'This ward')}</b> will no longer be offered at Sample Collection. Reports already issued keep the ward name.`, confirmLabel:`Remove ward`})) return;
   await withErrorToast(async ()=>{
     await api.deleteWard(id);
     wardsCache = [];
@@ -2566,7 +3001,7 @@ async function viewInstruments(){
       <button class="btn btn-sm btn-outline" onclick="openInstrumentMapsModal('${i.id}')">Test Codes</button>
       <button class="btn btn-sm btn-outline" onclick="toggleInstrument('${i.id}', ${!i.enabled})">${i.enabled?'Switch Off':'Switch On'}</button>
       <button class="btn btn-sm btn-outline" onclick="regenerateInstrumentKey('${i.id}')">New Key</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteInstrument('${i.id}')">Remove</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteInstrument('${i.id}',this)">Remove</button>
     </td>
   </tr>`).join('');
   return `
@@ -2582,7 +3017,7 @@ async function viewInstruments(){
 }
 function openInstrumentModal(facilityId){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>New Instrument</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Name used in the lab</label><input id="ins_name"></div>
@@ -2630,15 +3065,16 @@ async function toggleInstrument(id, enabled){
   await withErrorToast(async ()=>{ await api.updateInstrument(id, {enabled}); await render(); });
 }
 async function regenerateInstrumentKey(id){
-  if(!confirm('Issue a new key? The bridge for this instrument stops working until the new key is put in its config.json.')) return;
+  if(!await confirmAction({title:'Issue a new key?', body:'The current key stops working at once. The bridge for this instrument will not be accepted until the new key is put in its <span class="mono">config.json</span> and it is restarted.', confirmLabel:'Issue new key'})) return;
   await withErrorToast(async ()=>{
     const r = await api.regenerateInstrumentKey(id);
     await render();
     showInstrumentKey(r.name, r.key);
   });
 }
-async function deleteInstrument(id){
-  if(!confirm('Remove this instrument and its test-code mappings? Its log entries are kept.')) return;
+async function deleteInstrument(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Remove this instrument?`, body:`<b>${escapeHtml(name||'This instrument')}</b> and its test-code mappings will be removed, and its bridge will stop being accepted. Its log entries are kept.`, confirmLabel:`Remove instrument`})) return;
   await withErrorToast(async ()=>{ await api.deleteInstrument(id); await render(); });
 }
 async function openInstrumentMapsModal(id){
@@ -2657,7 +3093,7 @@ async function openInstrumentMapsModal(id){
       </tr>`;
     }).join('');
     document.getElementById('modalRoot').innerHTML = `
-    <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+    <div class="modal-overlay">
       <div class="modal" style="max-width:760px;">
         <div class="modal-head"><h2>Test Codes</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
         <p class="muted" style="font-size:12.5px;margin-top:-6px;">The code this analyser uses for each test, from its host-interface manual. Only mapped tests are sent to the analyser, and only mapped results are accepted.</p>
@@ -2688,7 +3124,7 @@ async function saveInstrumentMap(id){
   });
 }
 async function deleteInstrumentMap(id, mapId){
-  if(!confirm('Remove this mapping? Results with this analyser code will be held until it is mapped again.')) return;
+  if(!await confirmAction({title:'Remove this test-code mapping?', body:'The test will no longer be sent to this analyser, and results with this analyser code will be held for review until it is mapped again.', confirmLabel:'Remove mapping'})) return;
   await withErrorToast(async ()=>{ await api.deleteInstrumentMap(id, mapId); await openInstrumentMapsModal(id); });
 }
 
@@ -2701,7 +3137,7 @@ function viewCategories(){
       <td class="mono" style="font-weight:700;font-size:15px;">${escapeHtml(c.letter)}</td>
       <td>${escapeHtml(c.name)}</td>
       <td>${inUse} test(s)</td>
-      <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openCategoryModal('${c.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteCategory('${c.id}')">Delete</button></td>
+      <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openCategoryModal('${c.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteCategory('${c.id}',this)">Delete</button></td>
     </tr>`;
   }).join('');
   return `
@@ -2718,7 +3154,7 @@ function viewCategories(){
 function openCategoryModal(id){
   const existing = id ? categoriesCache.find(c=>c.id===id) : null;
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>${existing?'Edit Category':'New Category'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Category Name</label><input id="cat_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Immunology"></div>
@@ -2740,8 +3176,9 @@ async function saveCategory(id){
     showToast(`Category "${name}" saved.`);
   });
 }
-async function deleteCategory(id){
-  if(!confirm('Delete this category? Tests must be moved elsewhere first.')) return;
+async function deleteCategory(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this category?`, body:`<b>${escapeHtml(name||'This category')}</b> will be deleted. Tests in it must be moved to another category first.`, confirmLabel:`Delete category`})) return;
   await withErrorToast(async ()=>{
     await api.deleteCategory(id);
     categoriesCache = await api.categories();
@@ -2755,7 +3192,7 @@ async function viewPanels(){
   const rows = panels.map(p=>`<tr>
     <td>${escapeHtml(p.name)}</td>
     <td>${p.testCodes.map(c=>`<span class="mono muted">${escapeHtml(c)}</span>`).join(', ')}</td>
-    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openPanelModal('${p.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deletePanel('${p.id}')">Delete</button></td>
+    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openPanelModal('${p.id}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deletePanel('${p.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2783,7 +3220,7 @@ function renderPanelModalBody(){
   const q = panelModalSearch.trim().toLowerCase();
   const filtered = q ? catalogCache.filter(t=>(t.name||'').toLowerCase().includes(q) || (t.code||'').toLowerCase().includes(q)) : catalogCache;
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>${existing?'Edit Panel':'New Panel'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Panel Name</label><input id="panel_name" value="${escapeHtml(existing?.name||'')}" placeholder="e.g. Renal Panel"></div>
@@ -2815,8 +3252,9 @@ async function savePanel(id){
     showToast('Panel saved.');
   });
 }
-async function deletePanel(id){
-  if(!confirm('Delete this panel?')) return;
+async function deletePanel(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this panel?`, body:`<b>${escapeHtml(name||'This panel')}</b> will be deleted. The tests in it stay in the catalog.`, confirmLabel:`Delete panel`})) return;
   await withErrorToast(async ()=>{ await api.deleteTestPanel(id); await render(); });
 }
 
@@ -2832,7 +3270,7 @@ async function viewAliases(){
     <td class="mono">${escapeHtml(a.hisCode)}</td>
     <td class="mono">${escapeHtml(a.internalCode)}</td>
     <td>${escapeHtml(test(a.internalCode)?.name||'—')}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteAlias('${a.id}')">Delete</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteAlias('${a.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2842,7 +3280,7 @@ async function viewAliases(){
     <div class="card">
       <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by HIS code, internal code, or test name</label>
         <input id="aliasSearchField" value="${escapeHtml(aliasSearch)}" placeholder="Type to filter…"
-          oninput="aliasSearch=this.value;render();const el=document.getElementById('aliasSearchField');if(el)el.focus();"></div>
+          oninput="aliasSearch=this.value;renderCached();const el=document.getElementById('aliasSearchField');if(el)el.focus();"></div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>HIS Code</th><th>Internal Code</th><th>Maps To</th><th></th></tr></thead>
@@ -2852,7 +3290,7 @@ async function viewAliases(){
 }
 function openAliasModal(){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>New Alias</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>HIS/Billing Code (as it arrives on the memo)</label><input id="alias_his" placeholder="e.g. GLUC-F"></div>
@@ -2873,8 +3311,9 @@ async function saveAlias(){
     showToast('Alias saved.');
   });
 }
-async function deleteAlias(id){
-  if(!confirm('Delete this alias?')) return;
+async function deleteAlias(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this HIS alias?`, body:`HIS code <b>${escapeHtml(name||'')}</b> will no longer be matched to a catalog test. A memo using it will arrive with an unrecognised test.`, confirmLabel:`Delete alias`})) return;
   await withErrorToast(async ()=>{ await api.deleteTestAlias(id); await render(); });
 }
 
@@ -2889,7 +3328,7 @@ async function viewReflexRules(){
     <td><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
       <input type="checkbox" ${r.enabled?'checked':''} onchange="toggleReflexRule('${r.id}', this.checked)"> ${r.enabled?'Enabled':'Disabled'}
     </label></td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteReflexRule('${r.id}')">Delete</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteReflexRule('${r.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2904,7 +3343,7 @@ async function viewReflexRules(){
 }
 function openReflexRuleModal(){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>New Reflex Rule</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Rule Name</label><input id="reflex_name" placeholder="e.g. High glucose → suggest HbA1c"></div>
@@ -2945,8 +3384,9 @@ async function toggleReflexRule(id, enabled){
     showToast(`Rule ${enabled?'enabled':'disabled'}.`);
   });
 }
-async function deleteReflexRule(id){
-  if(!confirm('Delete this reflex rule?')) return;
+async function deleteReflexRule(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this reflex rule?`, body:`<b>${escapeHtml(name||'This rule')}</b> will be deleted and will no longer be suggested at validation. To pause it instead, untick Enabled.`, confirmLabel:`Delete rule`})) return;
   await withErrorToast(async ()=>{ await api.deleteReflexRule(id); await render(); });
 }
 
@@ -2958,7 +3398,7 @@ async function viewOrganisms(){
   const rows = filtered.map(o=>`<tr>
     <td>${escapeHtml(o.name)}</td>
     <td class="muted">${escapeHtml(o.group||'—')}</td>
-    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openOrganismPanelModal('${o.id}')">Antibiotic Panel</button> <button class="btn btn-danger btn-sm" onclick="deleteOrganism('${o.id}')">Delete</button></td>
+    <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openOrganismPanelModal('${o.id}')">Antibiotic Panel</button> <button class="btn btn-danger btn-sm" onclick="deleteOrganism('${o.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2968,7 +3408,7 @@ async function viewOrganisms(){
     <div class="card">
       <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by name or group</label>
         <input id="organismSearchField" value="${escapeHtml(organismSearch)}" placeholder="Type to filter…"
-          oninput="organismSearch=this.value;render();const el=document.getElementById('organismSearchField');if(el)el.focus();"></div>
+          oninput="organismSearch=this.value;renderCached();const el=document.getElementById('organismSearchField');if(el)el.focus();"></div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Name</th><th>Group</th><th></th></tr></thead>
@@ -2978,7 +3418,7 @@ async function viewOrganisms(){
 }
 function openOrganismModal(){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:420px;">
       <div class="modal-head"><h2>New Organism</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Name</label><input id="org_name" placeholder="e.g. Escherichia coli"></div>
@@ -2997,8 +3437,9 @@ async function saveOrganism(){
     showToast('Organism saved.');
   });
 }
-async function deleteOrganism(id){
-  if(!confirm('Delete this organism? Its antibiotic panel will be removed too.')) return;
+async function deleteOrganism(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this organism?`, body:`<b>${escapeHtml(name||'This organism')}</b> and its antibiotic panel will be deleted from the list offered at culture entry.`, confirmLabel:`Delete organism`})) return;
   await withErrorToast(async ()=>{ await api.deleteOrganism(id); await render(); });
 }
 async function openOrganismPanelModal(organismId){
@@ -3007,7 +3448,7 @@ async function openOrganismPanelModal(organismId){
   const selectedIds = new Set(panel.map(p=>p.antibioticId));
   const organism = organismsCache.find(o=>o.id===organismId);
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>${escapeHtml(organism?.name||'')} — Antibiotic Panel</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p class="muted" style="font-size:12.5px;margin-top:-6px;">These are the antibiotics offered by default when this organism is selected during culture result entry.</p>
@@ -3037,7 +3478,7 @@ async function viewAntibiotics(){
   const filtered = q ? antibioticsCache.filter(a=>(a.name||'').toLowerCase().includes(q)) : antibioticsCache;
   const rows = filtered.map(a=>`<tr>
     <td>${escapeHtml(a.name)}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteAntibiotic('${a.id}')">Delete</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteAntibiotic('${a.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -3047,7 +3488,7 @@ async function viewAntibiotics(){
     <div class="card">
       <div class="field" style="max-width:360px;margin-bottom:0;"><label>Search by name</label>
         <input id="antibioticSearchField" value="${escapeHtml(antibioticSearch)}" placeholder="Type to filter…"
-          oninput="antibioticSearch=this.value;render();const el=document.getElementById('antibioticSearchField');if(el)el.focus();"></div>
+          oninput="antibioticSearch=this.value;renderCached();const el=document.getElementById('antibioticSearchField');if(el)el.focus();"></div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Name</th><th></th></tr></thead>
@@ -3057,7 +3498,7 @@ async function viewAntibiotics(){
 }
 function openAntibioticModal(){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:380px;">
       <div class="modal-head"><h2>New Antibiotic</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Name</label><input id="ab_name" placeholder="e.g. Amikacin"></div>
@@ -3074,8 +3515,9 @@ async function saveAntibiotic(){
     showToast('Antibiotic saved.');
   });
 }
-async function deleteAntibiotic(id){
-  if(!confirm('Delete this antibiotic?')) return;
+async function deleteAntibiotic(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this antibiotic?`, body:`<b>${escapeHtml(name||'This antibiotic')}</b> will be deleted and removed from every organism's panel.`, confirmLabel:`Delete antibiotic`})) return;
   await withErrorToast(async ()=>{ await api.deleteAntibiotic(id); await render(); });
 }
 
@@ -3084,7 +3526,7 @@ async function viewRejectionReasons(){
   const reasons = await api.rejectionReasons();
   const rows = reasons.map(r=>`<tr>
     <td>${escapeHtml(r.name)}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteRejectionReason('${r.id}')">Delete</button></td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteRejectionReason('${r.id}',this)">Delete</button></td>
   </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -3099,7 +3541,7 @@ async function viewRejectionReasons(){
 }
 function openRejectionReasonModal(){
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:380px;">
       <div class="modal-head"><h2>New Rejection Reason</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Reason</label><input id="rr_name" placeholder="e.g. Hemolyzed"></div>
@@ -3116,8 +3558,9 @@ async function saveRejectionReason(){
     showToast('Rejection reason saved.');
   });
 }
-async function deleteRejectionReason(id){
-  if(!confirm('Delete this reason?')) return;
+async function deleteRejectionReason(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this rejection reason?`, body:`<b>${escapeHtml(name||'This reason')}</b> will no longer be offered when rejecting a specimen. Past rejections keep their wording.`, confirmLabel:`Delete reason`})) return;
   await withErrorToast(async ()=>{ await api.deleteRejectionReason(id); await render(); });
 }
 
@@ -3173,7 +3616,7 @@ function viewCatalog(){
       <td><span class="tier-badge ${TIER_CLASS[t.minTier]}">${TIER_SHORT[t.minTier]}</span></td>
       <td>${(t.refRanges||[]).length} range(s)</td>
       <td>${t.tat}h</td>
-      <td style="white-space:nowrap;">${editable? `<button class="btn btn-outline btn-sm" onclick="openTestModal('${t.code}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteTest('${t.code}')">Delete</button>` : `<span class="muted" style="font-size:11.5px;">Read-only</span>`}</td>
+      <td style="white-space:nowrap;">${editable? `<button class="btn btn-outline btn-sm" onclick="openTestModal('${t.code}')">Edit</button> <button class="btn btn-danger btn-sm" onclick="deleteTest('${t.code}',this)">Delete</button>` : `<span class="muted" style="font-size:11.5px;">Read-only</span>`}</td>
     </tr>`).join('');
   return `
     <div class="pagehead" style="display:flex;justify-content:space-between;align-items:center;">
@@ -3184,9 +3627,9 @@ function viewCatalog(){
       <div class="grid grid-2">
         <div class="field" style="margin-bottom:0;"><label>Search by code, name, category, or specimen type</label>
           <input id="catalogSearchField" value="${escapeHtml(catalogSearch)}" placeholder="Type to filter…"
-            oninput="catalogSearch=this.value;render();const el=document.getElementById('catalogSearchField');if(el)el.focus();"></div>
+            oninput="catalogSearch=this.value;renderCached();const el=document.getElementById('catalogSearchField');if(el)el.focus();"></div>
         <div class="field" style="margin-bottom:0;"><label>Category</label>
-          <select onchange="catalogCategoryFilter=this.value;render();">
+          <select onchange="catalogCategoryFilter=this.value;renderCached();">
             <option value="">All categories</option>
             ${categoriesCache.map(c=>`<option value="${escapeHtml(c.name)}" ${catalogCategoryFilter===c.name?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
           </select></div>
@@ -3213,11 +3656,11 @@ function openTestModal(code){
 function testModalHtml(isEdit){
   const t = draftTest;
   return `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal">
       <div class="modal-head"><h2>${isEdit? 'Edit Test':'New Test'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="grid grid-2">
-        <div class="field"><label>Test Code</label><input id="f_code" value="${escapeHtml(t.code)}" ${isEdit?'disabled':''} placeholder="e.g. LDL" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Test Code</label><input id="f_code" value="${escapeHtml(t.code)}" ${isEdit?'disabled':''} placeholder="IGMH test code"></div>
         <div class="field"><label>Test Name</label><input id="f_name" value="${escapeHtml(t.name)}" placeholder="e.g. LDL Cholesterol"></div>
       </div>
       <div class="grid grid-2">
@@ -3312,8 +3755,9 @@ async function saveTest(){
     showToast(`Test ${code} saved to catalog.`);
   });
 }
-async function deleteTest(code){
-  if(!confirm(`Delete test ${code} from the catalog? This will not affect existing orders.`)) return;
+async function deleteTest(code, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Delete this test from the catalog?`, body:`Test <b>${escapeHtml(code)}</b> will be deleted from the catalog for every lab. Existing orders and results keep it; new memos with this code will arrive as an unrecognised test.`, confirmLabel:`Delete test`})) return;
   await withErrorToast(async ()=>{
     await api.deleteTest(code);
     catalogCache = await api.catalog();
@@ -3331,14 +3775,14 @@ async function viewAdmin(){
   const atollRows = facilitiesCache.filter(f=>f.tier==='atoll').map(f=>`<tr>
       <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
       <td><span class="tier-badge ${TIER_CLASS[f.tier]}">${TIER_SHORT[f.tier]}</span></td>
-      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}',this)">Remove</button></td>
     </tr>`).join('');
   const hcRows = facilitiesCache.filter(f=>f.tier==='health_centre').map(f=>{
     const parent = facilitiesCache.find(x=>x.id===f.parentAtollId);
     return `<tr>
       <td class="mono">${escapeHtml(f.id)}</td><td>${escapeHtml(f.name)}</td>
       <td>${parent? escapeHtml(parent.name) : `${escapeHtml(reg.name)} <span class="muted">(direct — no Atoll Hospital)</span>`}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}')">Remove</button></td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeFacility('${f.id}',this)">Remove</button></td>
     </tr>`;
   }).join('');
   return `
@@ -3362,7 +3806,7 @@ async function viewAdmin(){
 function openLabModal(){
   const atolls = facilitiesCache.filter(f=>f.tier==='atoll');
   document.getElementById('modalRoot').innerHTML = `
-  <div class="modal-overlay" onmousedown="if(event.target===this) closeModal()">
+  <div class="modal-overlay">
     <div class="modal" style="max-width:460px;">
       <div class="modal-head"><h2>Create Lab</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="field"><label>Lab Level</label>
@@ -3394,8 +3838,9 @@ async function saveLab(){
     showToast(`${name} created.`);
   });
 }
-async function removeFacility(id){
-  if(!confirm('Remove this lab?')) return;
+async function removeFacility(id, btn){
+  const name = itemNameFrom(btn);
+  if(!await confirmAction({title:`Remove this lab?`, body:`<b>${escapeHtml(name||'This lab')}</b> will be removed from the network. Health Centres that referred to it will refer directly to the Regional Hospital.`, confirmLabel:`Remove lab`})) return;
   await withErrorToast(async ()=>{
     const result = await api.deleteFacility(id);
     facilitiesCache = await api.facilities();
@@ -3406,6 +3851,7 @@ async function removeFacility(id){
 
 /* ============================= INIT ============================= */
 (async function init(){
+  if(restoreSession()) await bootstrapCaches(); // a 401 here means the saved login has expired and logs out
   await renderApp();
 })();
 </script>

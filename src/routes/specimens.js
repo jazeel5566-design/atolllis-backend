@@ -98,13 +98,29 @@ function visibleTestsForSpecimen(specimen, viewerFacilityId, isOrigin) {
 router.get('/:specimenNumber', async (req, res) => {
   const specimen = await prisma.specimen.findUnique({
     where: { specimenNumber: req.params.specimenNumber },
-    include: { order: { include: { tests: true, patient: true } } },
+    include: { order: { include: { tests: true, patient: true, ward: true } } },
   });
   if (!specimen) return res.status(404).json({ error: 'No specimen found with that barcode number.' });
 
   const isOrigin = specimen.order.orderingFacilityId === req.user.facilityId;
   const tests = visibleTestsForSpecimen(specimen, req.user.facilityId, isOrigin);
   if (!tests.length) return res.status(403).json({ error: 'This specimen has no tests assigned to your facility.' });
+
+  // The patient's last certified result for each test, for comparison at validation — drawn only
+  // from results this facility could already see: its own orders, and tests it performed.
+  const fid = req.user.facilityId;
+  const earlier = await prisma.orderTest.findMany({
+    where: {
+      code: { in: tests.map(t => t.code) }, status: 'completed', orderId: { not: specimen.orderId },
+      order: { patientId: specimen.order.patientId },
+      OR: [{ performingFacilityId: fid }, { order: { orderingFacilityId: fid } }],
+    },
+    orderBy: { validatedAt: 'desc' },
+  });
+  for (const t of tests) {
+    const prev = earlier.find(e => e.code === t.code);
+    t.previous = prev ? { value: prev.value, unit: prev.unit, validatedAt: prev.validatedAt } : null;
+  }
 
   res.json({
     specimenNumber: specimen.specimenNumber,
@@ -114,6 +130,10 @@ router.get('/:specimenNumber', async (req, res) => {
     rejectionReason: specimen.rejectionReason,
     orderId: specimen.orderId,
     memoNumber: specimen.order.memoNumber,
+    orderedBy: specimen.order.orderedBy,
+    patientType: specimen.order.patientType,
+    wardName: specimen.order.ward ? specimen.order.ward.name : null,
+    collectedAt: specimen.collectedAt,
     isOrigin,
     patient: specimen.order.patient,
     tests,
