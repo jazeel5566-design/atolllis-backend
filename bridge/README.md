@@ -1,14 +1,18 @@
 # AtollLIS analyser bridge
 
-A small program that runs on a PC in the lab, next to one analyser. It speaks the analyser's own
-protocol on one side and talks to AtollLIS over HTTPS on the other:
+A small program that runs on **one always-on computer in the lab network** and serves every
+analyser on that network. It speaks each analyser's own protocol on one side and talks to AtollLIS
+over HTTPS on the other:
 
 ```
-analyser  <— ASTM or HL7 —>  bridge (lab PC)  <— HTTPS —>  AtollLIS
+analyser A ─┐
+analyser B ─┼─ ASTM or HL7 ─>  bridge (one lab computer)  <─ HTTPS ─>  AtollLIS
+analyser C ─┘
 ```
 
-The analyser never needs internet access, and AtollLIS never needs to reach into the lab network.
-Run one bridge per analyser.
+The analysers never need internet access, and AtollLIS never needs to reach into the lab network.
+The computer must be able to reach the analysers on the lab network and AtollLIS on the internet,
+and should have a fixed IP address, since analysers are pointed at it.
 
 ## What it does
 
@@ -31,34 +35,50 @@ Run one bridge per analyser.
 
 ## Setting up
 
-1. Install Node.js 18 or newer on the lab PC.
-2. Copy this `bridge` folder to the PC. For a **serial cable** connection only, run `npm install`
-   in the folder (it fetches the `serialport` package). A network connection needs nothing installed.
-3. In AtollLIS: **Settings → Instruments → New Instrument**. Copy the key it shows — it is shown once.
-4. Still in Settings → Instruments, open **Test Codes** and enter the analyser's code for each test,
-   from the analyser's host-interface manual.
-5. Copy `config.example.json` to `config.json` and fill it in (below).
-6. Start it: `node bridge.js`. Set it up to start with the PC (Task Scheduler / a service).
-7. On the analyser, switch on its host (LIS) connection and, for bidirectional use, host query mode.
+1. Install Node.js 18 or newer on the bridge computer — once, however many analysers there are.
+2. Copy this `bridge` folder to it. Only if an analyser is on a **serial cable**, run `npm install`
+   in the folder (it fetches the `serialport` package). Network connections need nothing installed.
+3. In AtollLIS: **Settings → Instruments → New Instrument**, once per analyser. Copy the key each
+   time — it is shown once.
+4. Still in Settings → Instruments, open **Test Codes** for each analyser and enter its code for
+   each test, from the analyser's host-interface manual.
+5. Copy `config.example.json` to `config.json` and fill it in (below), one entry per analyser.
+6. Start it: `node bridge.js`. Set it up to start with the computer (Task Scheduler / a service).
+7. On each analyser, switch on its host (LIS) connection and, for bidirectional use, host query
+   mode. Where the analyser asks for the host's address, give this computer's IP and the port set
+   for that analyser in `config.json`.
 
 ## config.json
+
+Settings for the whole bridge:
 
 | Setting | Meaning |
 |---|---|
 | `lisUrl` | The AtollLIS address, e.g. `https://…` |
-| `instrumentKey` | The key from Settings → Instruments |
+| `queueDir` | Where undelivered results wait, in a subfolder per analyser. Default `./queue` |
+| `logRaw` | `true` prints every raw message — useful when first connecting an analyser. It prints patient names, so switch it off afterwards |
+| `instruments` | The list of analysers, one entry each, with the settings below |
+
+Settings for each entry in `instruments`:
+
+| Setting | Meaning |
+|---|---|
+| `name` | A name for the log lines; use the same name as in Settings → Instruments |
+| `instrumentKey` | That analyser's own key from Settings → Instruments |
 | `protocol` | `astm` or `hl7` — must match what the analyser is set to |
 | `transport` | How the analyser is connected — one of the three forms below |
 | `astm.testIdComponent` | Which part of the ASTM test ID holds the analyser's code. `4` is usual (`^^^CODE`) |
 | `astm.orderActionCode` | Action code sent with orders. `N` (new) by default; some analysers expect `A` |
-| `queueDir` | Where undelivered results wait. Default `./queue` |
-| `logRaw` | `true` prints every raw message — useful when first connecting an analyser. It prints patient names, so switch it off afterwards |
+
+Every analyser needs its own key and its own connection: two entries cannot share a port. If one
+analyser's line fails, the others keep running. A config without `instruments`, describing a single
+analyser at the top level, still works.
 
 Transport forms:
 
 ```json
-{ "type": "tcp-server", "port": 5001 }                          the analyser connects to this PC
-{ "type": "tcp-client", "host": "192.168.1.50", "port": 5001 }  this PC connects to the analyser
+{ "type": "tcp-server", "port": 5001 }                          the analyser connects to this computer
+{ "type": "tcp-client", "host": "192.168.1.50", "port": 5001 }  this computer connects to the analyser
 { "type": "serial", "path": "COM3", "baudRate": 9600, "dataBits": 8, "parity": "none", "stopBits": 1 }
 ```
 

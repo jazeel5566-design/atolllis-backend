@@ -1,9 +1,20 @@
 {
   "lisUrl": "https://YOUR-ATOLLLIS-ADDRESS",
-  "instrumentKey": "PASTE THE KEY SHOWN ONCE IN SETTINGS > INSTRUMENTS",
-  "protocol": "astm",
-  "transport": { "type": "tcp-server", "port": 5001 },
-  "astm": { "testIdComponent": 4, "orderActionCode": "N" },
   "queueDir": "./queue",
-  "logRaw": false
+  "logRaw": false,
+  "instruments": [
+    {
+      "name": "NAME AS IN SETTINGS > INSTRUMENTS",
+      "instrumentKey": "PASTE THE KEY SHOWN ONCE FOR THIS INSTRUMENT",
+      "protocol": "astm",
+      "transport": { "type": "tcp-server", "port": 5001 },
+      "astm": { "testIdComponent": 4, "orderActionCode": "N" }
+    },
+    {
+      "name": "A SECOND ANALYSER ON THE SAME NETWORK",
+      "instrumentKey": "ITS OWN KEY",
+      "protocol": "hl7",
+      "transport": { "type": "tcp-client", "host": "192.168.1.50", "port": 6001 }
+    }
+  ]
 }

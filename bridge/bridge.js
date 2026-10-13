@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// AtollLIS analyser bridge — runs on a PC in the lab, next to one analyser.
+// AtollLIS analyser bridge — runs on one always-on computer in the lab network and serves every
+// analyser listed in its config.
 //
-//   analyser  <— ASTM (LIS01-A2 / LIS02-A2) or HL7 v2 (MLLP) —>  this program  <— HTTPS —>  AtollLIS
+//   analysers  <— ASTM (LIS01-A2 / LIS02-A2) or HL7 v2 (MLLP) —>  this program  <— HTTPS —>  AtollLIS
 //
 // Usage: node bridge.js [path/to/config.json]      (default: ./config.json — see config.example.json)
 const fs = require('fs');
@@ -12,7 +13,8 @@ const { AstmLink } = require('./lib/astm-link');
 const astm = require('./lib/astm-records');
 const hl7 = require('./lib/hl7');
 
-function start(config, options = {}) {
+// One analyser: its own line, its own key, its own queue of undelivered results.
+function startOne(config, options = {}) {
   const log = options.log || (msg => console.log(`${new Date().toISOString()}  ${msg}`));
   for (const k of ['lisUrl', 'instrumentKey', 'protocol', 'transport']) {
     if (!config[k]) throw new Error(`config: "${k}" is required`);
@@ -75,18 +77,51 @@ function start(config, options = {}) {
   transport.on('open', who => log(`Analyser connected (${who})`));
   transport.on('close', () => log('Analyser disconnected'));
   transport.on('log', log);
-  transport.on('fatal', e => { log(`Line failure: ${e.message}`); if (!options.embedded) process.exit(1); });
+  transport.on('fatal', e => { log(`Line failure: ${e.message}`); if (options.onFatal) options.onFatal(e); else if (!options.embedded) process.exit(1); });
 
+  let registered = false;
   const beat = async () => {
     try {
       const r = await lis.heartbeat();
-      if (!r.ok) log(`LIS rejected this bridge: ${r.data && r.data.error ? r.data.error : `HTTP ${r.status}`}`);
-    } catch (e) { log(`LIS not reachable: ${e.message}`); }
+      if (!r.ok) { registered = false; log(`LIS rejected this bridge: ${r.data && r.data.error ? r.data.error : `HTTP ${r.status}`}`); }
+      else if (!registered) { registered = true; log(`Registered in AtollLIS as "${r.data.instrument.name}"`); }
+    } catch (e) { registered = false; log(`LIS not reachable: ${e.message}`); }
     lis.flush();
   };
   beat();
   const timer = setInterval(beat, config.heartbeatMs || 30000);
   return { lis, transport, stop() { clearInterval(timer); transport.stop(); } };
+}
+
+// config.instruments lists several analysers served by this one program; lisUrl, queueDir, logRaw
+// and heartbeatMs at the top level apply to all of them unless an entry sets its own. Without
+// `instruments`, the config describes a single analyser.
+function start(config, options = {}) {
+  if (!Array.isArray(config.instruments)) return startOne(config, options);
+  if (!config.instruments.length) throw new Error('config: "instruments" is empty');
+  const baseLog = options.log || (msg => console.log(`${new Date().toISOString()}  ${msg}`));
+  const { instruments, ...shared } = config;
+  const seen = { name: new Set(), key: new Set(), line: new Set() };
+  const entries = instruments.map((ins, i) => {
+    if (!ins.name) throw new Error(`config: instrument #${i + 1} needs a "name"`);
+    const t = ins.transport || {};
+    const line = t.type === 'tcp-server' ? `port ${t.port}` : t.type === 'tcp-client' ? `${t.host}:${t.port}` : `serial ${t.path}`;
+    for (const [kind, value, what] of [['name', ins.name, 'name'], ['key', ins.instrumentKey, 'instrumentKey'], ['line', line, 'connection']]) {
+      if (kind === 'line' && t.type === 'tcp-server' && !t.port) continue; // port 0: the system picks a free one
+      if (seen[kind].has(value)) throw new Error(`config: two instruments share the same ${what}${kind === 'key' ? '' : ` (${value})`} — each needs its own`);
+      seen[kind].add(value);
+    }
+    const folder = String(ins.name).replace(/[^A-Za-z0-9_-]+/g, '_');
+    return { ...shared, ...ins, queueDir: ins.queueDir || path.join(shared.queueDir || './queue', folder) };
+  });
+  // One analyser's line failing must not take the others down with it.
+  const running = entries.map(entry => {
+    const log = msg => baseLog(`[${entry.name}] ${msg}`);
+    try { return startOne(entry, { ...options, log, onFatal: () => log('This instrument is stopped until the bridge is restarted') }); }
+    catch (e) { log(`Not started: ${e.message}`); return null; }
+  });
+  if (!running.some(Boolean)) throw new Error('No instrument could be started — check the config');
+  return { instruments: running, stop() { running.forEach(r => r && r.stop()); } };
 }
 
 if (require.main === module) {
