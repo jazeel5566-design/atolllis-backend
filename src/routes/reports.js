@@ -3,6 +3,7 @@ const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { evalResult } = require('../utils/domain');
 const { renderReportPdf } = require('../utils/report-pdf');
+const { amendmentsFor, WITHDRAWN_TEXT } = require('../utils/amendment');
 
 router.use(requireAuth);
 
@@ -28,7 +29,11 @@ async function buildReport(orderId, fid) {
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: codes } }, include: { refRanges: true } });
   const performingFacilities = await prisma.facility.findMany({ where: { id: { in: relevantTests.map(t => t.performingFacilityId) } } });
 
+  // A result changed after it was certified carries its history, so the sheet can say it was amended.
+  const amendments = await amendmentsFor(prisma, { orderTestId: { in: relevantTests.map(t => t.id) } });
+
   const lines = await Promise.all(relevantTests.map(async t => {
+    const amended = amendments.get(t.id) || [];
     const tc = catalogTests.find(c => c.code === t.code);
     const pf = performingFacilities.find(f => f.id === t.performingFacilityId);
     const specimen = order.specimens.find(s => s.id === t.specimenId);
@@ -36,7 +41,7 @@ async function buildReport(orderId, fid) {
     if (t.status !== 'completed') {
       // A result that is entered but not yet certified is only "processing" to any other facility.
       const status = t.status === 'interfaced' && t.performingFacilityId !== fid ? 'processing' : t.status;
-      return { code: t.code, name: t.name, method: tc ? tc.method : null, status, performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat };
+      return { code: t.code, name: t.name, method: tc ? tc.method : null, status, performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat, underAmendment: amended.length > 0 };
     }
     if (tc && tc.isCulture) {
       const cultureResult = await prisma.cultureResult.findUnique({
@@ -49,13 +54,16 @@ async function buildReport(orderId, fid) {
         validatedBy: t.validatedBy, validatedAt: t.validatedAt,
       };
     }
-    const info = tc ? evalResult(tc, order.patient, t.value) : { flag: 'N/A', flagLabel: '', rangeText: '' };
+    const withdrawn = amended.length > 0 && amended[amended.length - 1].kind === 'withdrawn' && t.value === WITHDRAWN_TEXT;
+    // Age for the reference range is taken on the day the specimen was collected.
+    const info = tc && !withdrawn ? evalResult(tc, order.patient, t.value, specimen ? specimen.collectedAt : null) : { flag: 'N/A', flagLabel: '', rangeText: '' };
     return {
       code: t.code, name: t.name, method: tc ? tc.method : null, value: t.value, unit: t.unit,
       ...info,
       performingFacilityId: t.performingFacilityId, performingFacility: pf ? pf.name : null, referred: t.referred, specimenNumber, isStat: t.isStat,
       validatedBy: t.validatedBy, validatedAt: t.validatedAt, comment: tc ? tc.comment : null,
       criticalNotifiedTo: t.criticalNotifiedTo, criticalNotifiedAt: t.criticalNotifiedAt,
+      amendments: amended, withdrawn,
     };
   }));
 
@@ -83,6 +91,7 @@ async function buildReport(orderId, fid) {
     wardName: order.ward ? order.ward.name : null,
     sheets: sheets.map(s => ({
       facility: s.facility, isOrderingFacility: s.isOrderingFacility, lines: s.lines,
+      amended: s.lines.some(l => l.amendments && l.amendments.length > 0),
       specimens: order.specimens.filter(sp => s.specimenIds.has(sp.id)).map(sp => ({ specimenNumber: sp.specimenNumber, bottleType: sp.bottleType })),
     })),
   } };

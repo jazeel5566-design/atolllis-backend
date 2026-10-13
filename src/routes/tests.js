@@ -6,6 +6,7 @@ const { uid } = require('../utils/id');
 const {
   CRITICAL_OVERDUE_MINUTES, CRITICAL_ESCALATE_MINUTES, CRITICAL_FLAG_LABELS, criticalFlagFor, minutesSince, escalationLevel,
 } = require('../utils/critical');
+const { describeAmendment, flagOf, changesMeaning, WITHDRAWN_TEXT } = require('../utils/amendment');
 
 router.use(requireAuth);
 
@@ -79,7 +80,8 @@ router.get('/critical', async (req, res) => {
           referred: t.referred, orderingFacilityName: t.order.orderingFacility.name,
           patientType: t.order.patientType, wardName: t.order.ward ? t.order.ward.name : null,
           patient: { name: t.order.patient.name, hospitalNumber: t.order.patient.hospitalNumber },
-          attempts: t.criticalNotifications.map(describeAttempt),
+          // After an amendment the clock restarts — earlier calls were about the earlier value.
+          attempts: t.criticalNotifications.filter(n => !t.enteredAt || n.createdAt >= t.enteredAt).map(describeAttempt),
         };
       })
       .filter(Boolean);
@@ -178,6 +180,11 @@ router.post('/:orderId/:code/critical-notification', requireCapability('process'
     updated = await prisma.orderTest.update({
       where: { id: t.id },
       data: { criticalFlag: flag, criticalNotifiedTo: who, criticalNotifiedAt: attempt.createdAt },
+    });
+    // If this value is itself a correction of an earlier report, the same call covers telling them.
+    await prisma.resultAmendment.updateMany({
+      where: { orderTestId: t.id, notifyRequired: true, notifiedAt: null },
+      data: { notifiedTo: who, notifiedMethod: body.method, notifiedAt: attempt.createdAt, notifiedBy: req.user.name },
     });
   }
   await logAudit(req.user, {
@@ -326,6 +333,150 @@ router.post('/:orderId/:code/certify', requireCapability('certify'), async (req,
   }
 
   res.json({ ...updated, reflexSuggestions });
+});
+
+// ---------- Amending a certified result (ISO 15189:2022 7.4.1.8) ----------
+// The result as first reported is never overwritten: it moves to a ResultAmendment row, with who
+// changed it, when and why, and the report then says it was amended. One step, by someone who can
+// certify at the performing lab. When the change alters what the result means, an attempt to tell
+// the clinician must be recorded with it; if nobody could be reached the amendment still goes out
+// (a known-wrong result is not left standing) and stays on the outstanding list until someone is.
+// A corrected value that is critical and not yet notified goes back to awaiting validation, where
+// the ordinary critical-value rule holds it.
+function readNotification(body) {
+  if (!body) return { notification: null };
+  const personName = (body.personName || '').trim();
+  if (!personName) return { error: 'personName is required — who was told?' };
+  if (!['phone', 'in_person'].includes(body.method)) return { error: 'method must be phone or in_person' };
+  if (!['reached', 'not_reached'].includes(body.outcome)) return { error: 'outcome must be reached or not_reached' };
+  const personRole = (body.personRole || '').trim() || null;
+  return { notification: {
+    personName, personRole, method: body.method, outcome: body.outcome, readBack: !!body.readBack,
+    who: personRole ? `${personName} (${personRole})` : personName,
+  } };
+}
+
+router.post('/:orderId/:code/amend', requireCapability('certify'), async (req, res) => {
+  const { orderId, code } = req.params;
+  const body = req.body || {};
+  const kind = body.action === 'withdraw' ? 'withdrawn' : body.action === 'correct' ? 'corrected' : null;
+  if (!kind) return res.status(400).json({ error: 'action must be correct or withdraw' });
+  const reason = (body.reason || '').trim();
+  if (reason.length < 5) return res.status(400).json({ error: 'A reason for the amendment is required.' });
+  const newValue = kind === 'corrected' ? String(body.value == null ? '' : body.value).trim() : null;
+  if (kind === 'corrected' && !newValue) return res.status(400).json({ error: 'The corrected value is required.' });
+  const { notification, error } = readNotification(body.notification);
+  if (error) return res.status(400).json({ error });
+
+  const t = await prisma.orderTest.findFirst({ where: { orderId, code } });
+  if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
+  if (t.status !== 'completed') return res.status(409).json({ error: `Only a validated result can be amended (status: ${t.status})` });
+  if (kind === 'corrected' && newValue === String(t.value == null ? '' : t.value).trim()) {
+    return res.status(400).json({ error: 'The corrected value is the same as the reported value.' });
+  }
+
+  const [tc, order, specimen, earlier, facility] = await Promise.all([
+    prisma.testDefinition.findUnique({ where: { code }, include: { refRanges: true } }),
+    prisma.order.findUnique({ where: { id: orderId }, include: { patient: true } }),
+    t.specimenId ? prisma.specimen.findUnique({ where: { id: t.specimenId } }) : null,
+    prisma.resultAmendment.findFirst({ where: { orderTestId: t.id }, orderBy: { amendedAt: 'desc' } }),
+    prisma.facility.findUnique({ where: { id: req.user.facilityId }, select: { name: true } }),
+  ]);
+  if (tc && tc.isCulture) return res.status(400).json({ error: 'Culture and sensitivity reports cannot be amended here yet.' });
+  if (kind === 'withdrawn' && earlier && earlier.kind === 'withdrawn') return res.status(409).json({ error: 'This result is already withdrawn.' });
+
+  const patient = order && order.patient;
+  const at = specimen ? specimen.collectedAt : null;
+  const wasWithdrawn = !!earlier && earlier.kind === 'withdrawn';
+  const previousFlag = wasWithdrawn ? 'N/A' : (CRITICAL_FLAG_LABELS[t.criticalFlag] ? t.criticalFlag : flagOf(tc, patient, t.value, at));
+  const newFlag = kind === 'withdrawn' ? 'N/A' : flagOf(tc, patient, newValue, at);
+  const notifyRequired = changesMeaning(kind, previousFlag, newFlag);
+  if (notifyRequired && !notification) {
+    return res.status(400).json({ error: 'This amendment changes what the result means — record who was told, or that nobody could be reached.', requiresNotification: true });
+  }
+
+  const now = new Date();
+  const reached = !!notification && notification.outcome === 'reached';
+  const newCritical = CRITICAL_FLAG_LABELS[newFlag] ? newFlag : null;
+  const held = !!newCritical && !reached; // back to awaiting validation, under the critical-value rule
+  const newUnit = kind === 'corrected' ? (tc ? tc.units : t.unit) : null;
+
+  const amendment = await prisma.resultAmendment.create({
+    data: {
+      id: uid('AMD'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+      kind, reason,
+      previousValue: t.value, previousUnit: t.unit, previousFlag,
+      previousEnteredBy: t.enteredBy, previousEnteredAt: t.enteredAt, previousValidatedBy: t.validatedBy, previousValidatedAt: t.validatedAt,
+      newValue, newUnit, newFlag,
+      amendedBy: req.user.name, amendedAt: now, notifyRequired,
+      ...(reached ? { notifiedTo: notification.who, notifiedMethod: notification.method, notifiedAt: now, notifiedBy: req.user.name } : {}),
+    },
+  });
+  if (newCritical && notification) {
+    await prisma.criticalNotification.create({
+      data: {
+        id: uid('CRN'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+        personName: notification.personName, personRole: notification.personRole, method: notification.method, outcome: notification.outcome,
+        readBack: reached && notification.readBack, note: 'Amended result', recordedBy: req.user.name, createdAt: now,
+      },
+    });
+  }
+  const updated = await prisma.orderTest.update({
+    where: { id: t.id },
+    data: {
+      value: kind === 'withdrawn' ? WITHDRAWN_TEXT : newValue, unit: newUnit,
+      enteredAt: now, enteredBy: req.user.name,
+      status: held ? 'interfaced' : 'completed',
+      validatedBy: held ? null : req.user.name, validatedAt: held ? null : now,
+      criticalFlag: newCritical,
+      criticalNotifiedTo: newCritical && reached ? notification.who : null,
+      criticalNotifiedAt: newCritical && reached ? now : null,
+    },
+  });
+  const told = !notification ? '' : reached ? ` — told ${notification.who}` : ` — could not reach ${notification.who}`;
+  await logAudit(req.user, {
+    action: kind === 'withdrawn' ? 'result_withdrawn' : 'result_amended', entityType: 'OrderTest', entityId: t.id,
+    details: `${code}: ${t.value} ${t.unit || ''} -> ${kind === 'withdrawn' ? 'withdrawn' : `${newValue} ${newUnit || ''}`}. Reason: ${reason}${told}`.replace(/\s+/g, ' '),
+  });
+  res.status(201).json({ ...updated, amendment: describeAmendment(amendment), held });
+});
+
+// Amendments made by this lab, newest first — ?pending=1 for those where the clinician still has
+// to be told.
+router.get('/amendments', async (req, res) => {
+  if (!(await canHandleCriticals(req.user.role))) return res.json([]);
+  const rows = await prisma.resultAmendment.findMany({
+    where: { facilityId: req.user.facilityId, ...(req.query.pending ? { notifyRequired: true, notifiedAt: null } : {}) },
+    include: { orderTest: { include: { order: { include: { patient: true, ward: true } }, specimen: true } } },
+    orderBy: { amendedAt: 'desc' },
+    take: 200,
+  });
+  res.json(rows.map(a => ({
+    ...describeAmendment(a),
+    orderId: a.orderTest.orderId, code: a.orderTest.code, name: a.orderTest.name,
+    memoNumber: a.orderTest.order.memoNumber, orderedBy: a.orderTest.order.orderedBy,
+    specimenNumber: a.orderTest.specimen ? a.orderTest.specimen.specimenNumber : null,
+    patientType: a.orderTest.order.patientType, wardName: a.orderTest.order.ward ? a.orderTest.order.ward.name : null,
+    patient: a.orderTest.order.patient,
+  })));
+});
+
+// Record an attempt to tell the clinician about an amendment made earlier.
+router.post('/amendments/:id/notification', requireCapability('process'), async (req, res) => {
+  const { notification, error } = readNotification(req.body || {});
+  if (error) return res.status(400).json({ error });
+  const a = await prisma.resultAmendment.findUnique({ where: { id: req.params.id }, include: { orderTest: true } });
+  if (!a || a.facilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
+  if (a.notifiedAt) return res.status(409).json({ error: `Already notified: ${a.notifiedTo}` });
+  const reached = notification.outcome === 'reached';
+  const updated = reached
+    ? await prisma.resultAmendment.update({ where: { id: a.id }, data: { notifiedTo: notification.who, notifiedMethod: notification.method, notifiedAt: new Date(), notifiedBy: req.user.name } })
+    : a;
+  await logAudit(req.user, {
+    action: reached ? 'amendment_notified' : 'amendment_attempt_failed', entityType: 'OrderTest', entityId: a.orderTestId,
+    details: `${a.orderTest.code}: amended result — ${reached ? 'told' : 'could not reach'} ${notification.who}`,
+  });
+  res.status(201).json(describeAmendment(updated));
 });
 
 // Adds a reflex-suggested test to an already-existing order, as a fresh 'ordered' test — it still

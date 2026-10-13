@@ -4,6 +4,9 @@ const { requireAuth, requireCapability } = require('../middleware/auth');
 
 router.use(requireAuth);
 
+// A range's age band is in days, months or years; anything else is read as years.
+const rangeRow = r => ({ sex: r.sex, ageMin: r.ageMin, ageMax: r.ageMax, ageUnit: ['D', 'M', 'Y'].includes(r.ageUnit) ? r.ageUnit : 'Y', low: r.low, high: r.high });
+
 router.get('/', async (req, res) => {
   const tests = await prisma.testDefinition.findMany({
     include: { refRanges: true },
@@ -31,7 +34,7 @@ router.post('/', requireCapability('manage_catalog'), async (req, res) => {
       comment: comment || '',
       isCulture: !!isCulture,
       isStat: !!isStat,
-      refRanges: { create: (refRanges || []).map(r => ({ sex: r.sex, ageMin: r.ageMin, ageMax: r.ageMax, low: r.low, high: r.high })) },
+      refRanges: { create: (refRanges || []).map(rangeRow) },
     },
     include: { refRanges: true },
   });
@@ -54,7 +57,7 @@ router.put('/:code', requireCapability('manage_catalog'), async (req, res) => {
       comment,
       isCulture: !!isCulture,
       isStat: !!isStat,
-      refRanges: { create: (refRanges || []).map(r => ({ sex: r.sex, ageMin: r.ageMin, ageMax: r.ageMax, low: r.low, high: r.high })) },
+      refRanges: { create: (refRanges || []).map(rangeRow) },
     },
     include: { refRanges: true },
   });

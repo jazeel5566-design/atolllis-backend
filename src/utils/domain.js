@@ -42,13 +42,37 @@ function formatAge(dob, now = new Date()) {
   return `${Math.max(0, Math.floor((now - d) / 86400000))}d`;
 }
 
-function matchRange(test, patient) {
-  const age = calcAge(patient.dob);
+// Age in completed days, months and years on a given date — how reference-range age bands are
+// counted. Keep in step with ageParts() in public/index.html.
+function ageParts(dob, at) {
+  const d = new Date(dob);
+  let n = at ? new Date(at) : new Date();
+  if (Number.isNaN(n.getTime())) n = new Date();
+  if (Number.isNaN(d.getTime())) return null;
+  let months = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth());
+  if (n.getDate() < d.getDate()) months -= 1;
+  const days = Math.floor((Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+  return { D: Math.max(0, days), M: Math.max(0, months), Y: Math.max(0, Math.floor(months / 12)) };
+}
+
+const AGE_UNIT_ORDER = { D: 0, M: 1, Y: 2 };
+const AGE_UNIT_WORDS = { D: 'days', M: 'months', Y: 'years' };
+
+// The reference range for this patient: each range's age band is in its own unit (days, months or
+// years) and includes both ends, counted in completed units — "0–7 days" includes a 7-day-old,
+// "1–12 years" a child up to the 13th birthday. `at` is the date the age is taken on — the
+// specimen's collection date, so an old result keeps the range it was reported against. When
+// several bands fit, a sex-specific one wins, then the one in the finest unit.
+function matchRange(test, patient, at) {
+  const age = ageParts(patient.dob, at);
+  if (!age) return null;
   const sex = patient.sex;
   const ranges = test.refRanges || [];
-  let candidates = ranges.filter(r => (r.sex === 'Any' || r.sex === sex) && age >= r.ageMin && age <= r.ageMax);
+  const unitOf = r => (AGE_UNIT_ORDER[r.ageUnit] !== undefined ? r.ageUnit : 'Y');
+  let candidates = ranges.filter(r => (r.sex === 'Any' || r.sex === sex) && age[unitOf(r)] >= r.ageMin && age[unitOf(r)] <= r.ageMax);
   if (!candidates.length) return null;
-  candidates = candidates.slice().sort((a, b) => (a.sex === 'Any' ? 1 : 0) - (b.sex === 'Any' ? 1 : 0));
+  candidates = candidates.slice().sort((a, b) =>
+    ((a.sex === 'Any' ? 1 : 0) - (b.sex === 'Any' ? 1 : 0)) || (AGE_UNIT_ORDER[unitOf(a)] - AGE_UNIT_ORDER[unitOf(b)]));
   return candidates[0];
 }
 
@@ -59,8 +83,8 @@ function numericValue(value) {
 }
 
 // Keep in step with the copy of this function in public/index.html.
-function evalResult(test, patient, value) {
-  const range = matchRange(test, patient);
+function evalResult(test, patient, value, at) {
+  const range = matchRange(test, patient, at);
   const rangeText = range ? `${range.low} \u2013 ${range.high} ${test.units || ''}`.trim() : 'Not established for age/sex';
   const v = numericValue(value);
   // A text result can't be compared to anything — no flag, rather than a misleading "Normal".
@@ -89,4 +113,4 @@ function generateSpecimenNumber(categoryLetter, sequence, date) {
   return `${letter}${yy}${m}${dd}${seq}`;
 }
 
-module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, formatAge, matchRange, numericValue, evalResult, generateSpecimenNumber };
+module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, formatAge, ageParts, AGE_UNIT_WORDS, matchRange, numericValue, evalResult, generateSpecimenNumber };

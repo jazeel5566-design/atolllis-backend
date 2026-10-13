@@ -14,19 +14,27 @@ router.use(requireAuth);
 // pre-validation results are never exposed outside the lab that produced them. Specimens (each a
 // physical tube with its own barcode) are filtered the same way — a specimen is only shown if it
 // contains at least one test this viewer can see.
-function mapOrderForViewer(order, viewerFacilityId) {
+function mapOrderForViewer(order, viewerFacilityId, amendedIds) {
   const own = order.orderingFacilityId === viewerFacilityId;
   const tests = order.tests
     .filter(t => own || (t.referred && t.performingFacilityId === viewerFacilityId))
     .map(t => ({
       ...t,
       visibleStatus: (t.status === 'interfaced' && t.performingFacilityId !== viewerFacilityId) ? 'processing' : t.status,
+      amended: !!amendedIds && amendedIds.has(t.id), // the result was changed after it was first certified
     }));
   const visibleTestIds = new Set(tests.map(t => t.id));
   const specimens = (order.specimens || []).filter(s =>
     (order.tests || []).some(t => t.specimenId === s.id && visibleTestIds.has(t.id))
   );
   return { ...order, tests, specimens, viewerIsOrigin: own };
+}
+
+// Ids of amended tests among the orders this facility can see. Amendments are rare, so this stays
+// small however long the order list grows.
+async function amendedTestIds(orderWhere) {
+  const rows = await prisma.resultAmendment.findMany({ where: { orderTest: { order: orderWhere } }, select: { orderTestId: true } });
+  return new Set(rows.map(r => r.orderTestId));
 }
 
 router.get('/', async (req, res) => {
@@ -39,8 +47,9 @@ router.get('/', async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
 
+  const amendedIds = await amendedTestIds({ OR: [{ orderingFacilityId: fid }, { tests: { some: { performingFacilityId: fid } } }] });
   let mapped = orders
-    .map(o => mapOrderForViewer(o, fid))
+    .map(o => mapOrderForViewer(o, fid, amendedIds))
     .filter(o => o.viewerIsOrigin || o.tests.length > 0);
 
   const stageFilters = {
@@ -64,7 +73,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
-  const mapped = mapOrderForViewer(order, req.user.facilityId);
+  const mapped = mapOrderForViewer(order, req.user.facilityId, order ? await amendedTestIds({ id: order.id }) : null);
   if (!mapped.viewerIsOrigin && mapped.tests.length === 0) {
     return res.status(403).json({ error: 'Not visible to this facility' });
   }

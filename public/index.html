@@ -97,7 +97,7 @@
   .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
   .modal-head h2{margin:0;}
   .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--mute);}
-  .range-row{display:grid;grid-template-columns:1fr 70px 70px 80px 80px 30px;gap:6px;margin-bottom:6px;align-items:center;}
+  .range-row{display:grid;grid-template-columns:1fr 64px 64px 92px 80px 80px 30px;gap:6px;margin-bottom:6px;align-items:center;}
   .range-row input,.range-row select{padding:6px 7px;font-size:12.5px;}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;z-index:120;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:min(640px,92vw);display:flex;gap:14px;align-items:flex-start;}
   .toast-error{background:var(--crimson);}
@@ -202,8 +202,7 @@
     .modal-overlay{padding:0;align-items:stretch;}
     .modal{border-radius:0;min-height:100vh;}
     .range-row{grid-template-columns:1fr 1fr;gap:6px;}
-    .range-row > *:nth-child(5){grid-column:1;}
-    .range-row > *:nth-child(6){grid-column:2;justify-self:end;}
+    .range-row > *:nth-child(7){justify-self:end;}
     .order-card-head{flex-direction:column;align-items:flex-start;}
     .test-row{flex-direction:column;align-items:flex-start;}
     .result-input{width:100%;margin-bottom:6px;}
@@ -395,6 +394,9 @@ const api = {
   manualResult: (orderId, code, value) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/manual-result`, {method:'POST', body:{value}}),
   certify: (orderId, code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/certify`, {method:'POST'}),
   criticalWorklist: () => apiRequest('/tests/critical'),
+  amendResult: (orderId, code, data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/amend`, {method:'POST', body:data}),
+  amendments: (pending) => apiRequest('/tests/amendments' + (pending?'?pending=1':'')),
+  recordAmendmentNotification: (id, data) => apiRequest(`/tests/amendments/${id}/notification`, {method:'POST', body:data}),
   criticalLog: (params) => apiRequest(`/tests/critical-log${params?('?'+params):''}`),
   instruments: (facilityId) => apiRequest(`/instruments${facilityId?('?facilityId='+encodeURIComponent(facilityId)):''}`),
   createInstrument: (data) => apiRequest('/instruments', {method:'POST', body:data}),
@@ -444,19 +446,36 @@ function calcAge(dob){
   if(m<0 || (m===0 && n.getDate()<d.getDate())) a--;
   return a;
 }
-function matchRange(t, patient){
-  const age = calcAge(patient.dob), sex = patient.sex;
-  let cands = (t.refRanges||[]).filter(r => (r.sex==='Any'||r.sex===sex) && age>=(r.ageMin??0) && age<=(r.ageMax??150));
+// Age in completed days, months and years on a date. Keep in step with ageParts() in src/utils/domain.js.
+function ageParts(dob, at){
+  const d = new Date(dob);
+  let n = at ? new Date(at) : new Date();
+  if(Number.isNaN(n.getTime())) n = new Date();
+  if(!dob || Number.isNaN(d.getTime())) return null;
+  let months = (n.getFullYear()-d.getFullYear())*12 + (n.getMonth()-d.getMonth());
+  if(n.getDate()<d.getDate()) months--;
+  const days = Math.floor((Date.UTC(n.getFullYear(),n.getMonth(),n.getDate()) - Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()))/86400000);
+  return {D:Math.max(0,days), M:Math.max(0,months), Y:Math.max(0,Math.floor(months/12))};
+}
+const AGE_UNIT_ORDER = {D:0, M:1, Y:2};
+const AGE_UNIT_WORDS = {D:'days', M:'months', Y:'years'};
+// Mirrors matchRange() in src/utils/domain.js: each band is in its own unit and includes both
+// ends; `at` is the specimen's collection date.
+function matchRange(t, patient, at){
+  const age = ageParts(patient.dob, at), sex = patient.sex;
+  if(!age) return null;
+  const unitOf = r => AGE_UNIT_ORDER[r.ageUnit]!==undefined ? r.ageUnit : 'Y';
+  const cands = (t.refRanges||[]).filter(r => (r.sex==='Any'||r.sex===sex) && age[unitOf(r)]>=(r.ageMin??0) && age[unitOf(r)]<=(r.ageMax??150));
   if(!cands.length) return null;
-  cands.sort((a,b)=> (a.sex==='Any'?1:0)-(b.sex==='Any'?1:0));
+  cands.sort((a,b)=> ((a.sex==='Any'?1:0)-(b.sex==='Any'?1:0)) || (AGE_UNIT_ORDER[unitOf(a)]-AGE_UNIT_ORDER[unitOf(b)]));
   return cands[0];
 }
 // A result as a number, or NaN if it isn't one. "<0.05" / ">400" are read as their boundary.
 function numericValue(value){ return parseFloat(String(value??'').trim().replace(/^[<>≤≥]=?\s*/, '')); }
 // Mirrors evalResult() in src/utils/domain.js — keep the two in step.
-function evalResult(t, patient, value){
+function evalResult(t, patient, value, at){
   if(!t) return {flag:'N/A', flagLabel:'Unknown test', rangeText:''};
-  const range = matchRange(t, patient);
+  const range = matchRange(t, patient, at);
   const rangeText = range ? `${range.low} – ${range.high} ${t.units||''}`.trim() : 'Not established for age/sex';
   const v = numericValue(value);
   if(Number.isNaN(v)) return {flag:'N/A', flagLabel: range?'':'Not established', rangeText};
@@ -1639,11 +1658,14 @@ let processingTab = 'analyser';
 let analyserScanResult = null;
 async function viewProcessingPage(){
   const fid = session.user.facilityId, f = fac(fid);
-  const [allOrders, incomingQ, critical, iface] = await Promise.all([
+  const [allOrders, incomingQ, critical, iface, pendingAmendments] = await Promise.all([
     api.orders(), api.orders('incoming_referrals'),
     api.criticalWorklist().catch(()=>({items:[], escalated:[], overdueMinutes:30, escalateMinutes:60})),
     api.interfaceMessages(processingTab==='interface' ? interfaceLogView : 'held').catch(()=>({held:0, messages:[]})),
+    api.amendments(true).catch(()=>[]),
   ]);
+  const amendmentLog = processingTab==='critical' ? await api.amendments().catch(()=>[]) : [];
+  const toTell = critical.items.length + pendingAmendments.length;
   lastCriticalItems = critical.items;
   const criticalLog = processingTab==='critical' ? await api.criticalLog(criticalLogParams()).catch(()=>[]) : [];
   const analyserQ = allOrders.filter(o=>o.tests.some(t=>t.performingFacilityId===fid && ['received','processing','interfaced'].includes(t.status)));
@@ -1652,11 +1674,11 @@ async function viewProcessingPage(){
     <div class="tabs">
       <div class="tab ${processingTab==='analyser'?'active':''}" onclick="processingTab='analyser';worklistSearch='';processingCategoryFilter='';processingStatusFilter='';processingDateFilter='';processingPatientTypeFilter='';processingStatOnly=false;render();">Analyser Processing (${analyserQ.length})</div>
       <div class="tab ${processingTab==='incoming'?'active':''}" onclick="processingTab='incoming';worklistSearch='';render();">Incoming Referrals (${incomingQ.length})</div>
-      <div class="tab ${processingTab==='critical'?'active':''}" onclick="processingTab='critical';worklistSearch='';render();" ${critical.items.length?'style="color:var(--crimson);font-weight:700;"':''}>${critical.items.length?'⚠ ':''}Critical Values (${critical.items.length})</div>
+      <div class="tab ${processingTab==='critical'?'active':''}" onclick="processingTab='critical';worklistSearch='';render();" ${toTell?'style="color:var(--crimson);font-weight:700;"':''}>${toTell?'⚠ ':''}Critical Values (${critical.items.length})${pendingAmendments.length?` · Amendments (${pendingAmendments.length})`:''}</div>
       <div class="tab ${processingTab==='interface'?'active':''}" onclick="processingTab='interface';worklistSearch='';render();" ${iface.held?'style="color:var(--amber);font-weight:700;"':''}>Analyser Interface (${iface.held} held)</div>
     </div>
     ${processingTab==='analyser'? renderProcessingTab(allOrders, f)
-      : processingTab==='critical'? renderCriticalTab(critical, criticalLog)
+      : processingTab==='critical'? renderCriticalTab(critical, criticalLog) + renderAmendmentsSection(pendingAmendments, amendmentLog)
       : processingTab==='interface'? renderInterfaceTab(iface)
       : renderIncomingTab(incomingQ, f)}
   `;
@@ -1869,7 +1891,8 @@ async function loadSpecimenPanel(specimenNumber){
 }
 function flagOf(s, t){
   const tc = test(t.code);
-  return (tc && s.patient) ? evalResult(tc, s.patient, t.value) : {flag:'N/A', flagLabel:'', rangeText:''};
+  if(t.status==='completed' && isWithdrawn(t)) return {flag:'N/A', flagLabel:'', rangeText:''};
+  return (tc && s.patient) ? evalResult(tc, s.patient, t.value, s.collectedAt) : {flag:'N/A', flagLabel:'', rangeText:''};
 }
 function renderSpecimenScanPanel(s){
   const anyReceived = s.tests.some(t=>t.status==='received');
@@ -1902,7 +1925,7 @@ function renderProcessingTestRow(s, t){
   const tc = test(t.code);
   const orderId = s.orderId;
   const unit = escapeHtml(t.unit||(tc?tc.units:'')||'');
-  const range = (tc && s.patient) ? matchRange(tc, s.patient) : null;
+  const range = (tc && s.patient) ? matchRange(tc, s.patient, s.collectedAt) : null;
   const rangeText = range ? `Reference ${range.low} – ${range.high} ${escapeHtml(tc.units||'')}` : (tc && !tc.isCulture ? 'No reference range for this age and sex' : '');
   const previous = t.previous ? `<div class="muted" style="font-size:12px;">Previous: <span class="mono">${escapeHtml(t.previous.value)} ${escapeHtml(t.previous.unit||'')}</span>, ${fmtDate(t.previous.validatedAt)}</div>` : '';
   let body = `<span class="pill ${meta.cls}">${meta.label}</span>`;
@@ -1921,15 +1944,20 @@ function renderProcessingTestRow(s, t){
     }
   }else if(t.status==='interfaced'){
     const info = flagOf(s,t);
+    if((t.amendments||[]).length) under += `<div style="font-size:12px;font-weight:600;">Corrected value — the earlier report is being amended. It is released when validated.</div>`;
     body = `<span class="mono" style="font-size:15px;font-weight:600;">${escapeHtml(t.value)} ${unit}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>
       ${hasCapability('certify')
         ? `<button class="btn btn-sm" onclick="certifyResult('${orderId}','${t.code}')">Validate result</button>`
         : `<span class="muted" style="font-size:12px;">Waiting for a Pathologist or Lab Manager to validate</span>`}`;
-    under = `<div class="muted" style="font-size:12px;">${rangeText}${t.enteredBy?` · Entered by ${escapeHtml(t.enteredBy)}, ${fmtDate(t.enteredAt)}`:''}</div>${previous}`;
+    under += `<div class="muted" style="font-size:12px;">${rangeText}${t.enteredBy?` · Entered by ${escapeHtml(t.enteredBy)}, ${fmtDate(t.enteredAt)}`:''}</div>${previous}${amendmentNotes(t)}`;
   }else if(t.status==='completed'){
     const info = flagOf(s,t);
-    body = `<span class="mono" style="font-size:15px;font-weight:600;">${escapeHtml(t.value)} ${unit}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>`;
-    under = `<div class="muted" style="font-size:12px;">${rangeText}${t.enteredBy?` · Entered by ${escapeHtml(t.enteredBy)}`:''} · Validated by ${escapeHtml(t.validatedBy||'—')}, ${fmtDate(t.validatedAt)}</div>${previous}`;
+    const amended = (t.amendments||[]).length>0, withdrawn = isWithdrawn(t);
+    const canAmend = hasCapability('certify') && t.performingFacilityId===session.user.facilityId && !tc?.isCulture;
+    body = `${withdrawn ? `<span style="font-size:15px;font-weight:600;">Result withdrawn</span>` : `<span class="mono" style="font-size:15px;font-weight:600;">${escapeHtml(t.value)} ${unit}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>`}
+      ${amended?`<span class="pill pill-amber">${withdrawn?'Withdrawn':'Amended'}</span>`:''}
+      ${canAmend?`<button class="btn btn-sm btn-outline" onclick="openAmendModal('${orderId}','${t.code}')">Amend result</button>`:''}`;
+    under = `<div class="muted" style="font-size:12px;">${withdrawn?'':rangeText+' · '}${withdrawn?'Withdrawn':amended?'Amended result validated':'Validated'} by ${escapeHtml(t.validatedBy||'—')}, ${fmtDate(t.validatedAt)}</div>${withdrawn?'':previous}${amendmentNotes(t)}`;
   }
 
   return `<div class="test-row ${t.isStat?'stat-row':''}"><div><div class="test-name">${escapeHtml(t.name)} <span class="mono muted">(${escapeHtml(t.code)})</span>${t.isStat?` <span class="pill pill-crimson">STAT</span>`:''}</div>${under}</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${body}</div></div>`;
@@ -1941,7 +1969,7 @@ function previewResultFlag(input, code){
   if(!out || !s || !tc) return;
   const value = (input.value||'').trim();
   if(!value){ out.innerHTML = ''; return; }
-  const info = evalResult(tc, s.patient, value);
+  const info = evalResult(tc, s.patient, value, s.collectedAt);
   if(Number.isNaN(numericValue(value))){
     const numeric = (tc.refRanges||[]).length || tc.criticalLow!=null || tc.criticalHigh!=null;
     out.innerHTML = numeric ? `<span style="color:var(--amber);font-weight:600;">Not a number — check before saving</span>` : '';
@@ -1953,7 +1981,7 @@ async function enterManualResult(orderId, code){
   const val = (document.getElementById(`mval_${orderId}_${code}`).value||'').trim();
   if(val===''){ showToast('Type a result first.'); return; }
   const s = analyserScanResult, tc = test(code);
-  const info = (s && tc) ? evalResult(tc, s.patient, val) : {flag:'N/A'};
+  const info = (s && tc) ? evalResult(tc, s.patient, val, s.collectedAt) : {flag:'N/A'};
   // A critical value is confirmed before it is saved: a slipped decimal point is the usual cause.
   if(info.flag==='CriticalHigh' || info.flag==='CriticalLow'){
     const t = s.tests.find(x=>x.code===code);
@@ -1969,6 +1997,198 @@ async function enterManualResult(orderId, code){
     if(analyserScanResult) analyserScanResult = await api.getSpecimen(analyserScanResult.specimenNumber);
     await render(); // the cursor lands in the next empty result field
     showToast(`Result saved for ${tc?tc.name:code} — waiting for validation.`);
+  });
+}
+
+/* ---------- Amending a validated result ---------- */
+// The first-reported value is never overwritten: the server keeps it with who changed it, when and
+// why, and the report says it was amended. Mirrors changesMeaning() in src/utils/amendment.js.
+function isWithdrawn(t){ const a = t.amendments||[]; return a.length>0 && a[a.length-1].kind==='withdrawn' && t.value==='Result withdrawn'; }
+function amendmentChangesMeaning(action, previousFlag, newFlag){
+  if(action==='withdraw') return true;
+  if(previousFlag==='N/A' || newFlag==='N/A') return true;
+  return previousFlag!==newFlag;
+}
+function amendmentLine(a){
+  const was = `${a.previousValue??''} ${a.previousUnit||''}`.trim() || '—';
+  const told = !a.notifyRequired ? '' : a.notifiedAt ? ` Clinician told: ${escapeHtml(a.notifiedTo||'')}, ${fmtDate(a.notifiedAt)}.` : ` <b style="color:var(--crimson);">Clinician not yet told.</b>`;
+  return `Previously reported as <span class="mono">${escapeHtml(was)}</span>${a.previousValidatedAt?` on ${fmtDate(a.previousValidatedAt)}`:''}. ${a.kind==='withdrawn'?'Withdrawn':'Amended'} ${fmtDate(a.amendedAt)} by ${escapeHtml(a.amendedBy)}. Reason: ${escapeHtml(a.reason)}.${told}`;
+}
+function amendmentNotes(t){
+  return (t.amendments||[]).map(a=>`<div style="font-size:12px;margin-top:3px;padding-left:8px;border-left:3px solid var(--amber);">${amendmentLine(a)}</div>`).join('');
+}
+// The "who was told" fields, shared by the amend dialog and the outstanding-notification dialog.
+function notifyFieldsHtml(){
+  return `<div class="field"><label for="amd_outcome">Outcome</label>
+      <select id="amd_outcome" onchange="syncNotifyFields()">
+        <option value="reached">Reached — told about the amendment</option>
+        <option value="not_reached">Not reached — no answer / unavailable</option>
+      </select></div>
+    <div class="grid grid-2">
+      <div class="field"><label for="amd_person">Person told</label><input id="amd_person" placeholder="Name of the clinician or nurse"></div>
+      <div class="field"><label for="amd_role">Their role (optional)</label><input id="amd_role" placeholder="Ordering clinician, ward nurse…"></div>
+    </div>
+    <div class="field"><label for="amd_method">Method</label>
+      <select id="amd_method"><option value="phone">Phone</option><option value="in_person">In person</option></select></div>
+    <div class="field" id="amd_readback_wrap"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="amd_readback"> Read-back confirmed — they repeated the result correctly</label></div>`;
+}
+function syncNotifyFields(){
+  const o = document.getElementById('amd_outcome'), w = document.getElementById('amd_readback_wrap');
+  if(o && w) w.style.display = o.value==='reached' ? 'block' : 'none';
+}
+// null when the person field is empty.
+function readNotifyFields(){
+  const personName = (document.getElementById('amd_person').value||'').trim();
+  if(!personName) return null;
+  return {
+    personName, outcome: document.getElementById('amd_outcome').value,
+    personRole: (document.getElementById('amd_role').value||'').trim(),
+    method: document.getElementById('amd_method').value,
+    readBack: document.getElementById('amd_readback').checked,
+  };
+}
+let amendState = null;
+function openAmendModal(orderId, code){
+  const s = analyserScanResult;
+  const t = s && s.orderId===orderId ? s.tests.find(x=>x.code===code) : null;
+  if(!t){ showToast('Open the specimen first.'); return; }
+  const tc = test(code);
+  const withdrawn = isWithdrawn(t);
+  amendState = { orderId, code, action:'correct', previousFlag: flagOf(s,t).flag, withdrawn };
+  const unit = escapeHtml((tc?tc.units:t.unit)||'');
+  const info = flagOf(s,t);
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-head"><h2>Amend a validated result</h2><button class="modal-close" aria-label="Close" onclick="closeModal()">✕</button></div>
+      ${patientBar(s.patient, {patientType:s.patientType, wardName:s.wardName})}
+      <div style="border:1.5px solid var(--line, #d5dbe3);border-radius:9px;padding:10px 14px;margin-bottom:12px;">
+        <div style="font-size:13px;">${escapeHtml(t.name)} <span class="mono muted">(${escapeHtml(code)})</span> · Specimen <span class="mono">${escapeHtml(s.specimenNumber)}</span></div>
+        <div style="margin-top:4px;">Reported: ${withdrawn?'<b>Result withdrawn</b>':`<span class="mono" style="font-size:18px;font-weight:700;">${escapeHtml(t.value)} ${escapeHtml(t.unit||'')}</span> <span class="flag-${(info.flag||'').replace(' ','')}">${escapeHtml(info.flagLabel)}</span>`}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px;">Validated by ${escapeHtml(t.validatedBy||'—')}, ${fmtDate(t.validatedAt)}${s.orderedBy?` · Ordered by <b>${escapeHtml(s.orderedBy)}</b>`:''}</div>
+      </div>
+      <div class="field"><label>What needs to change</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;margin-bottom:4px;"><input type="radio" name="amd_action" value="correct" checked onchange="syncAmendModal()"> Correct the value</label>
+        ${withdrawn?'':`<label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;"><input type="radio" name="amd_action" value="withdraw" onchange="syncAmendModal()"> Withdraw the result — there is no correct value to report (for example, wrong patient or wrong specimen)</label>`}
+      </div>
+      <div class="field" id="amd_value_wrap"><label for="amd_value">Corrected value</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input class="result-input mono" id="amd_value" inputmode="decimal" autocomplete="off" style="text-align:right;max-width:160px;" oninput="syncAmendModal()">
+        <span class="mono muted" style="font-size:12.5px;">${unit}</span><span class="live-flag" id="amd_flag"></span></div></div>
+      <div class="field"><label for="amd_reason">Reason for the amendment — printed on the amended report</label>
+        <textarea id="amd_reason" rows="2" placeholder="What was wrong and why"></textarea></div>
+      <div id="amd_notify_head" style="font-size:13px;font-weight:600;margin:6px 0;"></div>
+      ${notifyFieldsHtml()}
+      <div class="actions-row"><button class="btn btn-danger" id="amd_save" onclick="saveAmendment()">Amend result</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+  syncAmendModal();
+  const v = document.getElementById('amd_value'); if(v) v.focus();
+}
+// Works out, as the dialog is filled in, what the new value means and whether someone must be told.
+function amendDraft(){
+  const st = amendState, s = analyserScanResult, tc = test(st.code);
+  const action = (document.querySelector('input[name="amd_action"]:checked')||{}).value || 'correct';
+  const value = (document.getElementById('amd_value').value||'').trim();
+  const info = action==='correct' && value && tc && s ? evalResult(tc, s.patient, value, s.collectedAt) : {flag:'N/A', flagLabel:''};
+  const required = action==='withdraw' || (value!=='' && amendmentChangesMeaning(action, st.previousFlag, info.flag));
+  return { action, value, info, required, critical: /^Critical/.test(info.flag||'') };
+}
+function syncAmendModal(){
+  if(!amendState) return;
+  const d = amendDraft();
+  document.getElementById('amd_value_wrap').style.display = d.action==='correct' ? 'block' : 'none';
+  document.getElementById('amd_flag').innerHTML = d.action==='correct' && d.info.flag!=='N/A' ? `<span class="flag-${d.info.flag}">${escapeHtml(d.info.flagLabel)}</span>` : '';
+  document.getElementById('amd_notify_head').innerHTML = d.required
+    ? `<span style="color:var(--crimson);">This changes what the result means — record who was told.</span>${d.critical?' <span class="muted" style="font-weight:400;">The corrected value is critical: if nobody is reached it waits under Critical Values and is not released.</span>':' <span class="muted" style="font-weight:400;">If nobody can be reached, record the attempt: the amendment still goes out and stays on the outstanding list.</span>'}`
+    : `Who was told <span class="muted" style="font-weight:400;">(optional — the meaning of the result does not change)</span>`;
+  document.getElementById('amd_save').textContent = d.action==='withdraw' ? 'Withdraw result' : 'Amend result';
+  syncNotifyFields();
+}
+async function saveAmendment(){
+  const st = amendState, s = analyserScanResult;
+  const t = s.tests.find(x=>x.code===st.code);
+  const d = amendDraft();
+  const reason = (document.getElementById('amd_reason').value||'').trim();
+  if(d.action==='correct' && !d.value){ showToast('Type the corrected value.'); return; }
+  if(d.action==='correct' && !st.withdrawn && d.value===String(t.value??'').trim()){ showToast('The corrected value is the same as the reported value.'); return; }
+  if(reason.length<5){ showToast('Give the reason for the amendment.'); return; }
+  const notification = readNotifyFields();
+  if(d.required && !notification){ showToast('Record who was told — or who you tried to reach.'); return; }
+  const was = st.withdrawn ? 'Result withdrawn' : `${t.value} ${t.unit||''}`.trim();
+  const now = d.action==='withdraw' ? 'Result withdrawn' : `${d.value} ${(test(st.code)||{}).units||''}`.trim();
+  const ok = await confirmAction({
+    title: d.action==='withdraw' ? 'Withdraw this result?' : 'Amend this result?',
+    body: `<b>${escapeHtml(t.name)}</b> for <b>${escapeHtml(s.patient?.name||'this patient')}</b> (Hospital No. ${escapeHtml(s.patient?.hospitalNumber||'—')})<br>
+      Reported: <span class="mono">${escapeHtml(was)}</span><br>Now: <span class="mono" style="font-size:15px;"><b>${escapeHtml(now)}</b></span>${d.info.flag&&d.info.flag!=='N/A'?` <span class="flag-${d.info.flag}">${escapeHtml(d.info.flagLabel)}</span>`:''}<br>
+      Reason: ${escapeHtml(reason)}<br><br>The report will be marked as amended and will show the earlier value. This cannot be undone, only amended again.`,
+    confirmLabel: d.action==='withdraw' ? 'Withdraw result' : 'Amend result',
+  });
+  if(!ok) return;
+  await withErrorToast(async ()=>{
+    const res = await api.amendResult(st.orderId, st.code, { action:d.action, value:d.value, reason, notification });
+    closeModal(); amendState = null;
+    analyserScanResult = await api.getSpecimen(s.specimenNumber);
+    await render();
+    if(res.held) showToast('Corrected value saved. It is critical and nobody has been reached yet — notify the clinician under Critical Values, then validate it.', 'error');
+    else if(d.required && notification.outcome!=='reached') showToast('Result amended. The clinician has not been told yet — it is listed under Critical Values until someone is.', 'error');
+    else showToast(d.action==='withdraw' ? 'Result withdrawn. The report now says so.' : 'Result amended. The report is marked as amended.');
+  });
+}
+// Amended results where the clinician still has to be told, then the lab's amendment log.
+let lastAmendments = [];
+function renderAmendmentsSection(pending, log){
+  lastAmendments = [...pending, ...log];
+  const what = a => `${escapeHtml(a.name)} <span class="mono muted">(${escapeHtml(a.code)})</span>`;
+  const change = a => `<span class="mono">${escapeHtml(`${a.previousValue??''} ${a.previousUnit||''}`.trim()||'—')}</span> → <span class="mono"><b>${a.kind==='withdrawn'?'withdrawn':escapeHtml(`${a.newValue??''} ${a.newUnit||''}`.trim())}</b></span>`;
+  const who = a => `${escapeHtml(a.patient?.name||'?')} <span class="muted">(${escapeHtml(a.patient?.hospitalNumber||'—')})</span>`;
+  const pendingRows = pending.map(a=>`<tr>
+      <td>${who(a)}<div class="muted" style="font-size:12px;">Memo ${escapeHtml(a.memoNumber||'—')}${a.orderedBy?` · Ordered by ${escapeHtml(a.orderedBy)}`:''}${a.wardName?` · ${escapeHtml(a.wardName)}`:''}</div></td>
+      <td>${what(a)}<div style="font-size:12.5px;">${change(a)}</div></td>
+      <td>${fmtDate(a.amendedAt)}<div class="muted" style="font-size:12px;">${fmtWait(a.amendedAt)} ago · by ${escapeHtml(a.amendedBy)}</div></td>
+      <td>${hasCapability('process')?`<button class="btn btn-sm btn-danger" onclick="openAmendmentNotificationModal('${a.id}')">Record who was told</button>`:''}</td>
+    </tr>`).join('');
+  const logRows = log.map(a=>`<tr>
+      <td style="white-space:nowrap;">${fmtDate(a.amendedAt)}</td><td>${who(a)}</td><td>${what(a)}<div style="font-size:12.5px;">${change(a)}</div></td>
+      <td>${escapeHtml(a.reason)}<div class="muted" style="font-size:12px;">by ${escapeHtml(a.amendedBy)}</div></td>
+      <td>${!a.notifyRequired?'<span class="muted">Not required</span>':a.notifiedAt?`${escapeHtml(a.notifiedTo||'')}<div class="muted" style="font-size:12px;">${fmtDate(a.notifiedAt)}</div>`:'<b style="color:var(--crimson);">Not yet told</b>'}</td>
+    </tr>`).join('');
+  return `
+    ${pending.length?`<div class="card" style="padding:0;overflow-x:auto;border:1.5px solid var(--crimson);">
+      <div style="padding:12px 16px 4px;"><h2 style="margin:0;">Amended results — clinician not yet told (${pending.length})</h2></div>
+      <table><thead><tr><th>Patient</th><th>Result</th><th>Amended</th><th></th></tr></thead><tbody>${pendingRows}</tbody></table></div>`:''}
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <div style="padding:12px 16px 4px;"><h2 style="margin:0;">Amended results log</h2></div>
+      <table><thead><tr><th>Amended</th><th>Patient</th><th>Result</th><th>Reason</th><th>Clinician told</th></tr></thead>
+      <tbody>${logRows || `<tr><td colspan="5" class="empty">No validated result has been amended at this lab.</td></tr>`}</tbody></table></div>`;
+}
+let amendmentNotifyId = null;
+function openAmendmentNotificationModal(id){
+  const a = lastAmendments.find(x=>x.id===id);
+  if(!a) return;
+  amendmentNotifyId = id;
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head"><h2>Record who was told of the amendment</h2><button class="modal-close" aria-label="Close" onclick="closeModal()">✕</button></div>
+      ${patientBar(a.patient, {patientType:a.patientType, wardName:a.wardName})}
+      <div style="border:1.5px solid var(--amber);border-radius:9px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
+        ${escapeHtml(a.name)} <span class="mono muted">(${escapeHtml(a.code)})</span><div style="margin-top:4px;">${amendmentLine({...a, notifyRequired:false})}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px;">Ordered by <b>${escapeHtml(a.orderedBy||'—')}</b></div>
+      </div>
+      ${notifyFieldsHtml()}
+      <div class="actions-row"><button class="btn btn-danger" onclick="saveAmendmentNotification()">Save notification record</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+  syncNotifyFields();
+  document.getElementById('amd_person').focus();
+}
+async function saveAmendmentNotification(){
+  const data = readNotifyFields();
+  if(!data){ showToast('Enter who was told — or who you tried to reach.'); return; }
+  await withErrorToast(async ()=>{
+    await api.recordAmendmentNotification(amendmentNotifyId, data);
+    closeModal(); await render();
+    showToast(data.outcome==='reached' ? 'Notification recorded.' : 'Attempt logged — the clinician still has to be told.');
   });
 }
 
@@ -2415,7 +2635,7 @@ async function viewReportsInner(){
     const anyDone = doneCount>0;
     return `<tr>
       <td class="mono">${escapeHtml(o.memoNumber||o.id)}${o.viewerIsOrigin?'':`<div class="muted" style="font-family:inherit;font-size:11px;">Referred from ${escapeHtml(fac(o.orderingFacilityId).name)}</div>`}</td><td>${escapeHtml(p?.name||'?')} <span class="muted">(${escapeHtml(p?.hospitalNumber||'—')})</span></td><td>${fmtDate(o.collectedAt||o.createdAt)}</td>
-      <td>${doneCount}/${collectedCount} completed</td>
+      <td>${doneCount}/${collectedCount} completed${o.tests.some(t=>t.amended)?` <span class="pill pill-amber">Amended</span>`:''}</td>
       <td>${anyDone? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openReportPdf('${o.id}')">View Report</button>` : `<span class="muted" style="font-size:12px;">Not yet completed</span>`}</td>
     </tr>`;
   }).join('');
@@ -2505,9 +2725,9 @@ async function searchHistory(){
         if(t.status){
           return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''}</span><span class="pill ${(STATUS_META[t.status]||{cls:'pill-grey'}).cls}">${(STATUS_META[t.status]||{label:t.status}).label}</span></div>`;
         }
-        return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''} <span class="mono muted">(${escapeHtml(t.code)})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}</span>
+        return `<div class="test-row"><span>${escapeHtml(t.name)}${t.isStat?` <span class="pill pill-crimson" style="font-size:10px;">STAT</span>`:''} <span class="mono muted">(${escapeHtml(t.code)})</span> ${t.specimenNumber?`<span class="mono muted" style="font-size:11px;">${escapeHtml(t.specimenNumber)}</span>`:''}${(t.amendments||[]).length?` <span class="pill pill-amber" style="font-size:10px;">${t.withdrawn?'Withdrawn':'Amended'}</span>`:''}</span>
           <span class="mono flag-${(t.flag||'').replace(' ','')}">${escapeHtml(t.value)} ${escapeHtml(t.unit||'')} ${t.flag && t.flag!=='Normal' && t.flag!=='N/A'?`— ${escapeHtml(t.flagLabel)}`:''}</span></div>
-          <div class="muted" style="font-size:12px;margin:-4px 0 6px;">Ref: ${escapeHtml(t.rangeText||'')} · Certified by ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>`;
+          <div class="muted" style="font-size:12px;margin:-4px 0 6px;">${t.withdrawn?'Withdrawn by':`Ref: ${escapeHtml(t.rangeText||'')} · ${(t.amendments||[]).length?'Amended result certified by':'Certified by'}`} ${escapeHtml(t.validatedBy||'')}, ${fmtDate(t.validatedAt)}</div>${(t.amendments||[]).length?`<div style="margin:-2px 0 8px;">${amendmentNotes(t)}</div>`:''}`;
       }).join('');
       const visitType = o.patientType==='inpatient'? `In-Patient${o.wardName?' · '+escapeHtml(o.wardName):''}` : o.patientType==='outpatient'? 'Out-Patient' : null;
       return `<div class="order-card">
@@ -2665,6 +2885,7 @@ async function viewAuditLog(){
     critical_notified:'Critical Value Notified', critical_attempt_failed:'Critical Notification Attempt Failed',
     reject_referral:'Referred Specimen Rejected', rejection_reason_created:'Rejection Reason Added', rejection_reason_deleted:'Rejection Reason Removed',
     analyser_result:'Analyser Result', manual_result:'Manual Result', certify:'Certified',
+    result_amended:'Result Amended', result_withdrawn:'Result Withdrawn', amendment_notified:'Amendment Notified', amendment_attempt_failed:'Amendment Notification Attempt Failed',
     user_created:'User Created', user_updated:'User Updated', user_removed:'User Removed',
     facility_access_granted:'Facility Access Granted', facility_access_revoked:'Facility Access Revoked',
   };
@@ -3649,7 +3870,7 @@ function openTestModal(code){
   draftTest = existing ? JSON.parse(JSON.stringify(existing)) : {
     code:'', name:'', category:'', specimenType:'', method:'', units:'', tat:24,
     minTier:'health_centre', criticalLow:null, criticalHigh:null, comment:'',
-    refRanges:[{sex:'Any', ageMin:0, ageMax:150, low:'', high:''}]
+    refRanges:[{sex:'Any', ageMin:0, ageMax:150, ageUnit:'Y', low:'', high:''}]
   };
   document.getElementById('modalRoot').innerHTML = testModalHtml(!!existing);
 }
@@ -3710,23 +3931,66 @@ function testModalHtml(isEdit){
   </div>`;
 }
 function rangeRowsHtml(){
-  const header = `<div class="range-row" style="font-size:11px;color:var(--mute);font-weight:600;"><div>Sex</div><div>Age min</div><div>Age max</div><div>Low</div><div>High</div><div></div></div>`;
+  const header = `<div class="range-row" style="font-size:11px;color:var(--mute);font-weight:600;"><div>Sex</div><div>Age from</div><div>Age to</div><div>Age in</div><div>Low</div><div>High</div><div></div></div>`;
   const rows = draftTest.refRanges.map((r,i)=>`
     <div class="range-row">
-      <select onchange="draftTest.refRanges[${i}].sex=this.value">
+      <select aria-label="Sex" onchange="draftTest.refRanges[${i}].sex=this.value;showRangeWarnings()">
         <option value="Any" ${r.sex==='Any'?'selected':''}>Any</option>
         <option value="M" ${r.sex==='M'?'selected':''}>Male</option>
         <option value="F" ${r.sex==='F'?'selected':''}>Female</option>
       </select>
-      <input type="number" value="${r.ageMin}" onchange="draftTest.refRanges[${i}].ageMin=parseFloat(this.value)||0">
-      <input type="number" value="${r.ageMax}" onchange="draftTest.refRanges[${i}].ageMax=parseFloat(this.value)||150">
-      <input type="number" step="any" value="${r.low}" onchange="draftTest.refRanges[${i}].low=parseFloat(this.value)">
-      <input type="number" step="any" value="${r.high}" onchange="draftTest.refRanges[${i}].high=parseFloat(this.value)">
-      <button type="button" class="btn btn-danger btn-sm" style="padding:5px 8px;" onclick="removeRangeRow(${i})">✕</button>
+      <input type="number" min="0" aria-label="Age from" value="${r.ageMin}" onchange="draftTest.refRanges[${i}].ageMin=parseFloat(this.value)||0;showRangeWarnings()">
+      <input type="number" min="0" aria-label="Age to" value="${r.ageMax}" onchange="draftTest.refRanges[${i}].ageMax=this.value===''?150:(parseFloat(this.value)||0);showRangeWarnings()">
+      <select aria-label="Age in" onchange="draftTest.refRanges[${i}].ageUnit=this.value;showRangeWarnings()">
+        <option value="D" ${r.ageUnit==='D'?'selected':''}>Days</option>
+        <option value="M" ${r.ageUnit==='M'?'selected':''}>Months</option>
+        <option value="Y" ${!r.ageUnit||r.ageUnit==='Y'?'selected':''}>Years</option>
+      </select>
+      <input type="number" step="any" aria-label="Low" value="${r.low}" onchange="draftTest.refRanges[${i}].low=parseFloat(this.value);showRangeWarnings()">
+      <input type="number" step="any" aria-label="High" value="${r.high}" onchange="draftTest.refRanges[${i}].high=parseFloat(this.value);showRangeWarnings()">
+      <button type="button" class="btn btn-danger btn-sm" style="padding:5px 8px;" aria-label="Remove this range" onclick="removeRangeRow(${i})">✕</button>
     </div>`).join('');
-  return header + rows;
+  return header + rows + `<div class="muted" style="font-size:11.5px;">Both ends are included, in completed days, months or years: “0 to 7 days” covers a 7-day-old; “1 to 12 years” covers a child until the 13th birthday. Age is taken on the day the specimen was collected.</div><div id="rangeWarnings">${rangeWarningsHtml()}</div>`;
 }
-function addRangeRow(){ draftTest.refRanges.push({sex:'Any', ageMin:0, ageMax:150, low:'', high:''}); document.getElementById('rangeTable').innerHTML = rangeRowsHtml(); }
+// Bands laid on one line of days to spot holes and overlaps. A month is taken as 30.44 days and a
+// year as 365.25, so differences of a few days between units are not reported.
+function rangeProblems(ranges){
+  const F = {D:1, M:30.4375, Y:365.25}, TOL = 3, END = 150*365.25;
+  const out = [];
+  const band = r => ({from:(r.ageMin||0)*F[r.ageUnit||'Y'], to:Math.min(END, ((r.ageMax??150)+1)*F[r.ageUnit||'Y']), r});
+  const words = r => `${r.ageMin}–${r.ageMax} ${AGE_UNIT_WORDS[r.ageUnit||'Y']}`;
+  ranges.forEach(r=>{ if((r.ageMax??150) < (r.ageMin||0)) out.push(`“${words(r)}”: the upper age is below the lower age.`); });
+  for(const sex of ['M','F']){
+    const label = sex==='M'?'Male':'Female';
+    const own = ranges.filter(r=>r.sex===sex), any = ranges.filter(r=>r.sex==='Any');
+    // Overlaps are only a problem between bands of the same sex setting (a sex-specific band is meant to override "Any").
+    for(const group of [own, sex==='M'?any:[]]){
+      const bands = group.map(band).sort((a,b)=>a.from-b.from);
+      for(let i=1;i<bands.length;i++) if(bands[i].from < bands[i-1].to - TOL) out.push(`${group===any?'Any sex':label}: “${words(bands[i-1].r)}” and “${words(bands[i].r)}” overlap.`);
+    }
+    const all = [...own, ...any].map(band).sort((a,b)=>a.from-b.from);
+    if(!all.length) continue;
+    let covered = 0;
+    for(const b of all){
+      if(b.from > covered + TOL){ out.push(`${label}: no range between ${fmtAgeDays(covered)} and ${fmtAgeDays(b.from)}.`); }
+      covered = Math.max(covered, b.to);
+    }
+    if(covered < END - TOL) out.push(`${label}: no range from ${fmtAgeDays(covered)} upward.`);
+  }
+  return [...new Set(out)];
+}
+function fmtAgeDays(days){
+  if(days < 31) return `${Math.round(days)} days`;
+  if(days < 730) return `${Math.round(days/30.4375)} months`;
+  return `${Math.round(days/365.25)} years`;
+}
+function rangeWarningsHtml(){
+  const filled = draftTest.refRanges.filter(r=>r.low!==''&&r.high!==''&&r.low!=null&&r.high!=null&&!Number.isNaN(r.low)&&!Number.isNaN(r.high));
+  const problems = filled.length ? rangeProblems(filled) : [];
+  return problems.length ? `<div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--amber-bg);color:var(--amber);font-size:12.5px;"><b>Check the age bands</b> — a gap leaves a patient with no reference range; where bands overlap, the one in the finer unit is used.<ul style="margin:4px 0 0 18px;padding:0;">${problems.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>` : '';
+}
+function showRangeWarnings(){ const el = document.getElementById('rangeWarnings'); if(el) el.innerHTML = rangeWarningsHtml(); }
+function addRangeRow(){ draftTest.refRanges.push({sex:'Any', ageMin:0, ageMax:150, ageUnit:'Y', low:'', high:''}); document.getElementById('rangeTable').innerHTML = rangeRowsHtml(); }
 function removeRangeRow(i){ draftTest.refRanges.splice(i,1); document.getElementById('rangeTable').innerHTML = rangeRowsHtml(); }
 async function saveTest(){
   const code = document.getElementById('f_code').value.trim().toUpperCase();

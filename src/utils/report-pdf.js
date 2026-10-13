@@ -77,7 +77,20 @@ function drawCell(doc, blocks, x, y, width) {
   }
 }
 
-const certified = l => block(`Certified by ${l.validatedBy || ''}, ${fmtDate(l.validatedAt)}`, { size: 7.5, color: MUTE });
+const certified = l => block(`${(l.amendments || []).length ? (l.withdrawn ? 'Withdrawn by' : 'Amended result certified by') : 'Certified by'} ${l.validatedBy || ''}, ${fmtDate(l.validatedAt)}`, { size: 7.5, color: MUTE });
+
+// The lines printed under an amended result: what was first reported and when, who changed it,
+// when and why — so the reader can match this report to the one it replaces.
+function amendmentBlocks(l) {
+  const out = [];
+  for (const a of l.amendments || []) {
+    const was = `${a.previousValue == null ? '' : a.previousValue} ${a.previousUnit || ''}`.trim() || '—';
+    const first = a.previousValidatedAt ? `Previously reported as ${was} on ${fmtDate(a.previousValidatedAt)}.` : `Previously reported as ${was}.`;
+    const change = a.kind === 'withdrawn' ? 'Withdrawn' : `Amended to ${`${a.newValue == null ? '' : a.newValue} ${a.newUnit || ''}`.trim()}`;
+    out.push(block(`${l.name}: ${first} ${change} ${fmtDate(a.amendedAt)} by ${a.amendedBy}. Reason: ${a.reason}`, { size: 8, color: INK }));
+  }
+  return out;
+}
 
 // Each row is a list of cells: { blocks, span } where span is how many columns the cell covers.
 function rowFor(l) {
@@ -86,7 +99,8 @@ function rowFor(l) {
   const method = { blocks: [block(l.method || '', { size: 8.5 })], span: 1 };
 
   if (l.status) {
-    return [{ blocks: testCell, span: 1 }, { blocks: [block(STATUS_LABELS[l.status] || l.status, { font: ITALIC, color: MUTE })], span: 3 }, method];
+    const label = l.underAmendment ? 'Earlier result is being amended — awaiting validation' : (STATUS_LABELS[l.status] || l.status);
+    return [{ blocks: testCell, span: 1 }, { blocks: [block(label, { font: ITALIC, color: MUTE })], span: 3 }, method];
   }
   if (l.isCulture) {
     const cr = l.cultureResult;
@@ -98,6 +112,11 @@ function rowFor(l) {
     }
     blocks.push(certified(l));
     return [{ blocks: testCell, span: 1 }, { blocks, span: 3 }, method];
+  }
+  const isAmended = (l.amendments || []).length > 0;
+  if (isAmended) testCell.push(block(l.withdrawn ? 'WITHDRAWN' : 'AMENDED', { font: BOLD, size: 7.5 }));
+  if (l.withdrawn) {
+    return [{ blocks: testCell, span: 1 }, { blocks: [block('Result withdrawn', { font: BOLD }), certified(l)], span: 3 }, method];
   }
   if (l.comment) testCell.push(block(l.comment, { size: 7.5, color: MUTE }));
   const flagged = l.flag && l.flag !== 'Normal' && l.flag !== 'N/A';
@@ -129,7 +148,7 @@ function drawLetterhead(doc, report, sheet, continued) {
   const top = PAGE.margin;
   doc.font(BOLD).fontSize(16).fillColor(INK).text(pdfText(sheet.facility.name), PAGE.margin, top, { width: CONTENT_W - 170 });
   const afterName = doc.y;
-  doc.font(REG).fontSize(8.5).fillColor(MUTE).text(continued ? 'Standard Laboratory Report (continued)' : 'Standard Laboratory Report', PAGE.margin, afterName + 1);
+  doc.font(sheet.amended ? BOLD : REG).fontSize(sheet.amended ? 10 : 8.5).fillColor(sheet.amended ? INK : MUTE).text(`${sheet.amended ? 'AMENDED REPORT — replaces any earlier copy' : 'Standard Laboratory Report'}${continued ? ' (continued)' : ''}`, PAGE.margin, afterName + 1);
   const leftBottom = doc.y;
   doc.font(MONO).fontSize(10).fillColor(INK).text(pdfText(order.memoNumber || order.id), PAGE.margin + CONTENT_W - 170, top + 2, { width: 170, align: 'right' });
   doc.font(REG).fontSize(8.5).fillColor(MUTE).text(fmtDate(order.createdAt), PAGE.margin + CONTENT_W - 170, doc.y + 1, { width: 170, align: 'right' });
@@ -198,6 +217,13 @@ function drawSheet(doc, report, sheet, pageInfo) {
     let x = PAGE.margin;
     for (const c of cells) { drawCell(doc, c.blocks, x, y, c.width); x += c.width; }
     y += h;
+    const notes = amendmentBlocks(line);
+    if (notes.length) {
+      const nh = cellHeight(doc, notes, CONTENT_W);
+      if (y + nh > BOTTOM) y = continuedPage();
+      drawCell(doc, notes, PAGE.margin, y, CONTENT_W);
+      y += nh;
+    }
     doc.moveTo(PAGE.margin, y).lineTo(PAGE.margin + CONTENT_W, y).lineWidth(0.5).strokeColor(RULE).stroke();
   }
   // So a reader can tell the sheet is complete and no page is missing.

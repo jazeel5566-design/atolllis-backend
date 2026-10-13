@@ -4,6 +4,7 @@ const { requireAuth, requireCapability } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { uid } = require('../utils/id');
 const { resolveRejectionReason } = require('../utils/rejection');
+const { amendmentsFor, WITHDRAWN_TEXT } = require('../utils/amendment');
 
 router.use(requireAuth);
 
@@ -111,15 +112,21 @@ router.get('/:specimenNumber', async (req, res) => {
   const fid = req.user.facilityId;
   const earlier = await prisma.orderTest.findMany({
     where: {
-      code: { in: tests.map(t => t.code) }, status: 'completed', orderId: { not: specimen.orderId },
+      code: { in: tests.map(t => t.code) }, status: 'completed', orderId: { not: specimen.orderId }, value: { not: WITHDRAWN_TEXT },
       order: { patientId: specimen.order.patientId },
       OR: [{ performingFacilityId: fid }, { order: { orderingFacilityId: fid } }],
     },
     orderBy: { validatedAt: 'desc' },
   });
+  const amendments = await amendmentsFor(prisma, { orderTestId: { in: tests.map(t => t.id) } });
   for (const t of tests) {
     const prev = earlier.find(e => e.code === t.code);
     t.previous = prev ? { value: prev.value, unit: prev.unit, validatedAt: prev.validatedAt } : null;
+    t.amendments = amendments.get(t.id) || [];
+    // A corrected value still awaiting validation stays inside the lab that produced it.
+    if (t.status === 'interfaced' && t.performingFacilityId !== fid) {
+      t.amendments = t.amendments.map((a, i, all) => (i === all.length - 1 ? { ...a, newValue: null, newUnit: null, newFlag: null } : a));
+    }
   }
 
   res.json({

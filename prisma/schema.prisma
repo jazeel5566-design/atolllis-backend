@@ -201,6 +201,7 @@ model ReferenceRange {
   sex      String         // 'M' | 'F' | 'Any'
   ageMin   Float
   ageMax   Float
+  ageUnit  String         @default("Y") // 'D' | 'M' | 'Y' — the unit of ageMin/ageMax, counted in completed days, months or years
   low      Float
   high     Float
 }
@@ -364,6 +365,41 @@ model OrderTest {
 
   cultureResult         CultureResult?
   criticalNotifications CriticalNotification[]
+  amendments            ResultAmendment[]
+}
+
+// One row per change made to a result after it was certified (ISO 15189:2022 7.4.1.8). The result as
+// first reported is kept here and never overwritten; OrderTest carries the current one. A withdrawn
+// result has no newValue. When the change alters what the result means (notifyRequired), the row
+// stays outstanding until someone records who was told.
+model ResultAmendment {
+  id                  String    @id
+  orderTestId         String
+  orderTest           OrderTest @relation(fields: [orderTestId], references: [id], onDelete: Cascade)
+  facilityId          String    // the lab that amended (always the performing lab)
+  facilityName        String
+  kind                String    // 'corrected' | 'withdrawn'
+  reason              String
+  previousValue       String?
+  previousUnit        String?
+  previousFlag        String?   // flag of the result as first reported, e.g. 'Normal', 'High', 'CriticalHigh'
+  previousEnteredBy   String?
+  previousEnteredAt   DateTime?
+  previousValidatedBy String?
+  previousValidatedAt DateTime?
+  newValue            String?
+  newUnit             String?
+  newFlag             String?
+  amendedBy           String
+  amendedAt           DateTime  @default(now())
+  notifyRequired      Boolean   @default(false)
+  notifiedTo          String?
+  notifiedMethod      String?   // 'phone' | 'in_person'
+  notifiedAt          DateTime?
+  notifiedBy          String?
+
+  @@index([orderTestId])
+  @@index([facilityId, notifyRequired, notifiedAt])
 }
 
 // One row per attempt to tell someone about a critical (panic) value — including the attempts that
