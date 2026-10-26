@@ -2,6 +2,7 @@ const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { uid } = require('../utils/id');
+const { logAudit } = require('../utils/audit');
 
 router.use(requireAuth);
 
@@ -35,6 +36,7 @@ router.post('/', async (req, res) => {
       homeFacilityId: homeFacilityId || req.user.facilityId,
     },
   });
+  await logAudit(req.user, { action: 'patient_registered', entityType: 'Patient', entityId: patient.id, details: `Registered ${patient.name} manually` });
   res.status(201).json(patient);
 });
 

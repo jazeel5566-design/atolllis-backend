@@ -3,11 +3,52 @@ require('express-async-errors');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.set('trust proxy', true); // needed for req.ip to be the real client IP behind Render's proxy
-app.use(cors());
+
+// Security headers. The page is one file with inline script, inline styles and onclick handlers,
+// so those are allowed; everything else comes from this origin, except Google Fonts. The report
+// PDF opens from a blob: URL.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'self'", 'blob:'],
+      frameSrc: ["'self'", 'blob:'],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
+}));
+
+// The page is served from this same origin, which needs no CORS at all. Another origin is let in
+// only when listed in ALLOWED_ORIGINS (comma-separated). The analyser bridge is not a browser and
+// is unaffected.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : false }));
 app.use(express.json());
+
+// Login attempts per network address. Generous, because a whole hospital can share one address at
+// shift change; guessing one account's password is stopped by its own lockout (routes/auth.js).
+app.use('/api/auth/login', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: { trustProxy: false }, // trust proxy is on deliberately, for Render (see above)
+  message: { error: 'Too many login attempts from this network — wait 15 minutes and try again.' },
+}));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'AtollLIS backend' }));
 

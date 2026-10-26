@@ -618,6 +618,15 @@ async function renderApp(){
   }
 }
 let pendingFacilityLogin = null; // {username, password, defaultFacilityId, facilities} while choosing between >1 authorized facility
+let pendingPasswordChange = null; // {username, currentPassword, token, user} — logged in with a password someone else set
+
+// Password rules — keep in step with src/utils/password.js.
+const PASSWORD_MIN_LENGTH = 10;
+function passwordProblem(pw, username){
+  if(String(pw||'').length < PASSWORD_MIN_LENGTH) return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  if(username && String(pw).toLowerCase().includes(String(username).toLowerCase())) return 'Password must not contain the username.';
+  return null;
+}
 
 async function renderLoginScreen(){
   const el = document.getElementById('loginScreen');
@@ -630,6 +639,7 @@ async function renderLoginScreen(){
   try{ await apiRequest('/health', {auth:false}); }
   catch(e){ backendOk = false; loadError = e.message; }
 
+  if(pendingPasswordChange){ renderPasswordChangeStep(); return; }
   if(pendingFacilityLogin){ renderFacilitySelectionStep(); return; }
 
   el.innerHTML = `
@@ -665,17 +675,62 @@ function renderFacilitySelectionStep(){
       <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="pendingFacilityLogin=null;renderLoginScreen();">Cancel</button>
     </div>`;
 }
+// Shown after a login whose password was set by someone else (a new account, or a reset): the
+// owner chooses their own before anything else. The password just typed is the current one.
+function renderPasswordChangeStep(){
+  const el = document.getElementById('loginScreen');
+  el.innerHTML = `
+    <div class="login-card">
+      <div class="brand" style="padding:0 0 18px;border:none;">
+        <div class="mark" style="color:var(--navy);">Atoll<span style="color:var(--teal);">LIS</span></div>
+        <div class="sub" style="color:var(--mute);">Laboratory Information System</div>
+      </div>
+      <h2 style="font-size:15px;">Choose your own password</h2>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Your password was set by someone else. Choose one only you know: at least ${PASSWORD_MIN_LENGTH} characters, not containing your username.</p>
+      <div class="field"><label>New password</label><input id="first_pw_new" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('first_pw_confirm').focus();}"></div>
+      <div class="field"><label>Confirm new password</label><input id="first_pw_confirm" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter'){event.preventDefault();doFirstPasswordChange();}"></div>
+      <button class="btn" style="width:100%;" onclick="doFirstPasswordChange()">Set my password</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="pendingPasswordChange=null;session={token:null,user:null};renderLoginScreen();">Cancel</button>
+    </div>`;
+  const first = document.getElementById('first_pw_new'); if(first) first.focus();
+}
+async function doFirstPasswordChange(){
+  const next = document.getElementById('first_pw_new').value;
+  const confirm2 = document.getElementById('first_pw_confirm').value;
+  const { username, currentPassword, token, user } = pendingPasswordChange;
+  const problem = passwordProblem(next, username);
+  if(problem){ showToast(problem, 'error'); return; }
+  if(next!==confirm2){ showToast('The two passwords do not match.', 'error'); return; }
+  session.token = token; // not saved until the change succeeds
+  try{
+    const res = await api.changePassword(currentPassword, next);
+    pendingPasswordChange = null;
+    await finishLogin({ token: res.token, user: { ...user, mustChangePassword: false } });
+  }catch(e){
+    showToast(e.message, 'error');
+  }
+}
+// Everything after a successful login, whichever step it came through.
+async function finishLogin(data, username, password){
+  if(data.user.mustChangePassword){
+    pendingPasswordChange = { username, currentPassword: password, token: data.token, user: data.user };
+    renderPasswordChangeStep();
+    return;
+  }
+  session.token = data.token; session.user = data.user;
+  await bootstrapCaches();
+  state.activeView = 'dashboard';
+  saveSession();
+  noteActivity();
+  await renderApp();
+}
 async function doFacilityPickLogin(){
   const actingFacilityId = document.getElementById('login_pick_fac').value;
   const { username, password } = pendingFacilityLogin;
   try{
     const data = await api.login(username, password, actingFacilityId);
     pendingFacilityLogin = null;
-    session.token = data.token; session.user = data.user;
-    await bootstrapCaches();
-    state.activeView = 'dashboard';
-    saveSession();
-    await renderApp();
+    await finishLogin(data, username, password);
   }catch(e){
     showToast(e.message);
     pendingFacilityLogin = null;
@@ -693,13 +748,9 @@ async function doLogin(){
       renderFacilitySelectionStep();
       return;
     }
-    session.token = data.token; session.user = data.user;
-    await bootstrapCaches();
-    state.activeView = 'dashboard';
-    saveSession();
-    await renderApp();
+    await finishLogin(data, username, password);
   }catch(e){
-    showToast(e.message);
+    showToast(e.message, 'error');
   }
 }
 async function bootstrapCaches(){
@@ -713,12 +764,45 @@ async function bootstrapCaches(){
 // not have this shortcut — each facility's staff would hold their own credentials.
 function doLogout(){
   session = { token:null, user:null };
+  pendingPasswordChange = null;
   saveSession(); getCache.clear();
   closeModal(); document.getElementById('confirmRoot').innerHTML = '';
+  hideIdleWarning();
   facilitiesCache = []; catalogCache = []; categoriesCache = []; roleCapabilitiesCache = {roles:[], allCapabilities:[]};
   closeSidebar();
   renderApp();
 }
+
+// Idle logout (owner's setting, 2026-10-26): a bench PC left logged in is anyone's access to
+// patient results. After IDLE_MINUTES without a key, click, touch or scroll the session ends; a
+// minute before that, a notice on top of everything says so and any activity cancels it.
+const IDLE_MINUTES = 15, IDLE_WARNING_SECONDS = 60;
+let lastActivity = Date.now();
+function noteActivity(){ lastActivity = Date.now(); hideIdleWarning(); }
+['mousedown','keydown','scroll','touchstart','wheel'].forEach(ev=>document.addEventListener(ev, ()=>{ if(session.token) noteActivity(); }, {passive:true, capture:true}));
+function idleRoot(){
+  let el = document.getElementById('idleRoot');
+  if(!el){ el = document.createElement('div'); el.id = 'idleRoot'; document.body.appendChild(el); }
+  return el;
+}
+function showIdleWarning(secondsLeft){
+  idleRoot().innerHTML = `<div class="modal-overlay" style="z-index:300;"><div class="modal" role="alertdialog" aria-labelledby="idleTitle" style="max-width:380px;">
+    <h2 id="idleTitle">Still there?</h2>
+    <p style="font-size:13.5px;">You will be logged out in <b class="mono">${secondsLeft}</b> seconds because nothing has been done on this screen for ${IDLE_MINUTES - 1} minutes. Anything not yet saved will be lost.</p>
+    <div class="actions-row"><button class="btn" onclick="noteActivity()">Stay logged in</button><button class="btn btn-outline" onclick="doLogout()">Log out now</button></div>
+  </div></div>`;
+}
+function hideIdleWarning(){ const el = document.getElementById('idleRoot'); if(el) el.innerHTML = ''; }
+setInterval(()=>{
+  if(!session.token || pendingPasswordChange) return;
+  const idleSeconds = (Date.now() - lastActivity) / 1000;
+  if(idleSeconds >= IDLE_MINUTES*60){
+    doLogout();
+    showToast(`You were logged out after ${IDLE_MINUTES} minutes without activity.`, 'error');
+  }else if(idleSeconds >= IDLE_MINUTES*60 - IDLE_WARNING_SECONDS){
+    showIdleWarning(Math.ceil(IDLE_MINUTES*60 - idleSeconds));
+  }
+}, 1000);
 
 /* ============================= SHELL / ROUTER ============================= */
 function renderShell(){
@@ -2933,7 +3017,7 @@ function viewMyAccount(){
     <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
     <h2 style="font-size:14px;">Change Password</h2>
     <div class="field"><label>Current Password</label><input id="pw_current" type="password"></div>
-    <div class="field"><label>New Password (min. 6 characters)</label><input id="pw_new" type="password"></div>
+    <div class="field"><label>New Password (at least ${PASSWORD_MIN_LENGTH} characters, not containing your username)</label><input id="pw_new" type="password" autocomplete="new-password"></div>
     <div class="field"><label>Confirm New Password</label><input id="pw_confirm" type="password"></div>
     <button class="btn" onclick="changeOwnPassword()">Update Password</button>
   </div>`;
@@ -2943,11 +3027,13 @@ async function changeOwnPassword(){
   const next = document.getElementById('pw_new').value;
   const confirm2 = document.getElementById('pw_confirm').value;
   if(!current || !next){ showToast('Fill in your current and new password.'); return; }
-  if(next.length<6){ showToast('New password must be at least 6 characters.'); return; }
+  const problem = passwordProblem(next, session.user.username);
+  if(problem){ showToast(problem, 'error'); return; }
   if(next!==confirm2){ showToast('New password and confirmation do not match.'); return; }
   await withErrorToast(async ()=>{
-    await api.changePassword(current, next);
-    showToast('Password updated.');
+    const res = await api.changePassword(current, next);
+    session.token = res.token; saveSession(); // other sessions of this account have ended; this one goes on
+    showToast('Password updated. Any other place you were logged in has been logged out.');
     ['pw_current','pw_new','pw_confirm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   });
 }
@@ -2963,14 +3049,24 @@ async function viewUsers(){
     <select onchange="usersFacilityFilter=this.value;render();">
       ${facilities.map(fc=>`<option value="${fc.id}" ${targetFacilityId===fc.id?'selected':''}>${escapeHtml(fc.name)}</option>`).join('')}
     </select></div>` : '';
+  // Only an administrator changes an administrator's account (the server refuses it too).
+  const canManage = u => isAdmin || u.role!=='admin';
+  const statusOf = u => [
+    !u.active ? `<span class="pill pill-grey">Disabled</span>` : '',
+    u.locked ? `<span class="pill pill-crimson" title="Until ${escapeHtml(fmtDate(u.lockedUntil))}">Locked</span>` : '',
+    u.active && u.mustChangePassword ? `<span class="pill pill-amber">Sets own password at next login</span>` : '',
+  ].join(' ') || `<span class="muted">Active</span>`;
   const rows = users.map(u=>`<tr>
     <td>${escapeHtml(u.name)}${u.id===session.user.userId?' <span class="muted">(you)</span>':''}</td>
     <td class="mono">${escapeHtml(u.username)}</td>
     <td>${escapeHtml(u.roleLabel)}</td>
     <td>${u.facilityAccess.map(a=>escapeHtml(a.facilityName)).join(', ')}${u.facilityAccess.length>1?` <span class="pill pill-teal" style="font-size:10px;">picks at login</span>`:''}</td>
+    <td>${statusOf(u)}</td>
     <td style="white-space:nowrap;">
-      <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}','${targetFacilityId}')">Edit</button>
-      ${u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}',this)">Remove</button>`:''}
+      ${canManage(u)? `<button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}','${targetFacilityId}')">Edit</button>`:''}
+      ${canManage(u) && u.locked? `<button class="btn btn-outline btn-sm" onclick="unlockUser('${u.id}',this)">Unlock</button>`:''}
+      ${canManage(u) && u.id!==session.user.userId? `<button class="btn btn-outline btn-sm" onclick="setUserActive('${u.id}',${!u.active},this)">${u.active?'Disable':'Enable'}</button>`:''}
+      ${canManage(u) && u.id!==session.user.userId? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}',this)">Remove</button>`:''}
     </td>
   </tr>`).join('');
   return `
@@ -2979,8 +3075,8 @@ async function viewUsers(){
       <button class="btn" onclick="openUserModal(null,'${targetFacilityId}')">+ New User</button>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Facility Access</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="5" class="empty">No users found.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Facility Access</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6" class="empty">No users found.</td></tr>`}</tbody></table>
     </div>
     ${isAdmin? await renderRolePermissions() : ''}
   `;
@@ -3094,7 +3190,8 @@ async function openUserModal(userId, facilityId){
       <div class="field"><label>Role</label>
         <select id="u_role">${grantable.map(r=>`<option value="${r}" ${existing?.role===r?'selected':''}>${escapeHtml(ROLE_LABELS[r])}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>${existing?'Reset Password (leave blank to keep current)':'Password'}</label><input id="u_password" type="password" placeholder="min. 6 characters"></div>
+      <div class="field"><label>${existing?'Reset Password (leave blank to keep current)':'First Password'}</label><input id="u_password" type="password" autocomplete="new-password" placeholder="at least ${PASSWORD_MIN_LENGTH} characters">
+        <div class="muted" style="font-size:11.5px;margin-top:4px;">${existing?'A reset logs this person out everywhere.':'Give it to the person privately.'} They choose their own password the next time they log in.</div></div>
       <div class="actions-row"><button class="btn" onclick="saveUser(${existing?`'${existing.id}'`:'null'},'${facilityId}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
       ${accessSection}
     </div>
@@ -3123,17 +3220,35 @@ async function saveUser(userId, facilityId){
   const role = document.getElementById('u_role').value;
   const password = document.getElementById('u_password').value;
   if(!name || !username){ showToast('Name and username are required.'); return; }
+  const problem = (password || !userId) ? passwordProblem(password, username) : null;
+  if(problem){ showToast(problem, 'error'); return; }
   await withErrorToast(async ()=>{
     if(userId){
       const data = {name, role};
       if(password) data.newPassword = password;
       await api.updateUser(userId, data);
     }else{
-      if(!password || password.length<6){ showToast('Password must be at least 6 characters.'); return; }
       await api.createUser({name, username, password, role, facilityId});
     }
     closeModal(); await render();
     showToast('User saved.');
+  });
+}
+async function unlockUser(userId, btn){
+  const name = itemNameFrom(btn);
+  await withErrorToast(async ()=>{
+    await api.updateUser(userId, {unlock:true});
+    await render();
+    showToast(`${name||'The account'} can log in again.`);
+  });
+}
+async function setUserActive(userId, active, btn){
+  const name = itemNameFrom(btn);
+  if(!active && !await confirmAction({title:'Disable this account?', body:`<b>${escapeHtml(name||'This user')}</b> is logged out everywhere at once and cannot log in until the account is enabled again. Their name stays on everything they have already done.`, confirmLabel:'Disable account'})) return;
+  await withErrorToast(async ()=>{
+    await api.updateUser(userId, {active});
+    await render();
+    showToast(active ? `${name||'The account'} is enabled.` : `${name||'The account'} is disabled.`);
   });
 }
 async function deleteUser(userId, btn){

@@ -91,6 +91,17 @@ model User {
   facility       Facility @relation(fields: [facilityId], references: [id])
   facilityAccess UserFacilityAccess[]
   createdAt      DateTime @default(now())
+
+  // Account security. A disabled account cannot log in and its open sessions end at once;
+  // tokenVersion is copied into each login token, and bumping it (password, role or status change)
+  // ends every session issued before. After too many wrong passwords the account is locked until
+  // lockedUntil. A password set by someone else must be changed by its owner at the next login.
+  active             Boolean   @default(true)
+  tokenVersion       Int       @default(0)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  mustChangePassword Boolean   @default(false)
+  passwordChangedAt  DateTime?
 }
 
 // Which facilities this account is actually allowed to log into. Almost every account has exactly

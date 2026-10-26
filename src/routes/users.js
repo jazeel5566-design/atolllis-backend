@@ -5,16 +5,29 @@ const { requireAuth, requireCapability } = require('../middleware/auth');
 const { canGrantRole, ROLE_LABELS } = require('../utils/roles');
 const { uid } = require('../utils/id');
 const { logAudit } = require('../utils/audit');
+const { passwordProblem } = require('../utils/password');
 
 router.use(requireAuth);
 router.use(requireCapability('manage_users'));
 
 function sanitize(u) {
+  const locked = !!u.lockedUntil && u.lockedUntil > new Date();
   return {
     id: u.id, name: u.name, username: u.username, role: u.role, roleLabel: ROLE_LABELS[u.role] || u.role,
     facilityId: u.facilityId, createdAt: u.createdAt,
+    active: u.active, locked, lockedUntil: locked ? u.lockedUntil : null, mustChangePassword: u.mustChangePassword,
     facilityAccess: (u.facilityAccess || []).map(a => ({ facilityId: a.facilityId, facilityName: a.facility.name })),
   };
+}
+
+// Whether the caller may change this account at all. A lab manager works only on their own
+// facility's staff, and never on an administrator's account — resetting an admin's password would
+// otherwise be a way to become one.
+function cannotManage(req, user) {
+  if (req.user.role === 'admin') return null;
+  if (user.facilityId !== req.user.facilityId) return "Not this facility's user";
+  if (user.role === 'admin') return "Only an administrator can change an administrator's account";
+  return null;
 }
 
 // Lab managers only ever see/manage their own facility's staff. Admins may also target another
@@ -40,7 +53,8 @@ router.post('/', async (req, res) => {
   if (!name || !username || !password || !role) {
     return res.status(400).json({ error: 'name, username, password, and role are required' });
   }
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const problem = passwordProblem(password, username);
+  if (problem) return res.status(400).json({ error: problem });
   if (!canGrantRole(req.user.role, role)) {
     return res.status(403).json({ error: `Your role cannot grant "${role}"` });
   }
@@ -52,6 +66,7 @@ router.post('/', async (req, res) => {
   const user = await prisma.user.create({
     data: {
       name, username, passwordHash, role, facilityId,
+      mustChangePassword: true, // whoever set it knows it — the owner picks their own at first login
       facilityAccess: { create: [{ id: uid('UFA'), facilityId }] }, // home facility is always authorized
     },
     include: { facilityAccess: { include: { facility: true } } },
@@ -62,26 +77,42 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, role, newPassword } = req.body || {};
+  const { name, role, newPassword, active, unlock } = req.body || {};
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role !== 'admin' && user.facilityId !== req.user.facilityId) {
-    return res.status(403).json({ error: "Not this facility's user" });
-  }
+  const refusal = cannotManage(req, user);
+  if (refusal) return res.status(403).json({ error: refusal });
 
   const data = {};
   const changes = [];
+  let endSessions = false;
   if (name && name !== user.name) { data.name = name; changes.push('name'); }
   if (role && role !== user.role) {
     if (!canGrantRole(req.user.role, role)) return res.status(403).json({ error: `Your role cannot grant "${role}"` });
-    data.role = role;
+    data.role = role; // read from the account on every request, so it applies without logging out
     changes.push(`role → ${ROLE_LABELS[role] || role}`);
   }
   if (newPassword) {
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const problem = passwordProblem(newPassword, user.username);
+    if (problem) return res.status(400).json({ error: problem });
     data.passwordHash = await bcrypt.hash(newPassword, 10);
+    data.mustChangePassword = true;
+    data.passwordChangedAt = new Date();
+    data.failedLoginCount = 0; data.lockedUntil = null;
+    endSessions = true;
     changes.push('password reset');
   }
+  if (typeof active === 'boolean' && active !== user.active) {
+    if (user.id === req.user.userId) return res.status(400).json({ error: 'You cannot disable your own account' });
+    data.active = active;
+    if (!active) endSessions = true;
+    changes.push(active ? 'enabled' : 'disabled');
+  }
+  if (unlock && (user.lockedUntil || user.failedLoginCount)) {
+    data.failedLoginCount = 0; data.lockedUntil = null;
+    changes.push('unlocked');
+  }
+  if (endSessions) data.tokenVersion = { increment: 1 };
 
   const updated = await prisma.user.update({ where: { id }, data, include: { facilityAccess: { include: { facility: true } } } });
   if (changes.length) await logAudit(req.user, { action: 'user_updated', entityType: 'User', entityId: id, details: `Updated ${user.name}: ${changes.join(', ')}` });
@@ -92,9 +123,8 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role !== 'admin' && user.facilityId !== req.user.facilityId) {
-    return res.status(403).json({ error: "Not this facility's user" });
-  }
+  const refusal = cannotManage(req, user);
+  if (refusal) return res.status(403).json({ error: refusal });
   if (user.id === req.user.userId) return res.status(400).json({ error: 'Cannot delete your own account while logged in as it' });
 
   const remaining = await prisma.user.count({ where: { facilityId: user.facilityId } });
@@ -115,9 +145,8 @@ router.post('/:id/facility-access', async (req, res) => {
   if (!facilityId) return res.status(400).json({ error: 'facilityId is required' });
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role !== 'admin' && user.facilityId !== req.user.facilityId) {
-    return res.status(403).json({ error: "Not this facility's user" });
-  }
+  const refusal = cannotManage(req, user);
+  if (refusal) return res.status(403).json({ error: refusal });
   const facility = await prisma.facility.findUnique({ where: { id: facilityId } });
   if (!facility) return res.status(404).json({ error: 'Facility not found' });
 
@@ -135,9 +164,8 @@ router.delete('/:id/facility-access/:facilityId', async (req, res) => {
   const { id, facilityId } = req.params;
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role !== 'admin' && user.facilityId !== req.user.facilityId) {
-    return res.status(403).json({ error: "Not this facility's user" });
-  }
+  const refusal = cannotManage(req, user);
+  if (refusal) return res.status(403).json({ error: refusal });
   if (facilityId === user.facilityId) {
     return res.status(409).json({ error: "Can't revoke access to a user's home facility — change their home facility first, or remove the account." });
   }

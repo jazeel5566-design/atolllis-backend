@@ -62,7 +62,10 @@ async function setup() {
   if (!hc || !atoll || !regional) throw new Error('The dev branch needs a Regional Hospital and a Health Centre with a parent Atoll Hospital');
 
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
-  const accounts = { hc: [hc, 'pathologist'], atoll: [atoll, 'pathologist'], regional: [regional, 'pathologist'], phleb: [hc, 'phlebotomist'] };
+  const accounts = {
+    hc: [hc, 'pathologist'], atoll: [atoll, 'pathologist'], regional: [regional, 'pathologist'], phleb: [hc, 'phlebotomist'],
+    manager: [hc, 'lab_manager'], admin: [hc, 'admin'],
+  };
   const tokens = {};
   for (const [key, [facility, role]] of Object.entries(accounts)) {
     const username = `${USER_PREFIX}${key}_${suffix}`;
@@ -87,7 +90,7 @@ async function setup() {
     return memoNumber;
   }
 
-  return { facilities: { hc, atoll, regional }, tokens, catalog: await pickCatalogTests(), memo };
+  return { facilities: { hc, atoll, regional }, tokens, suffix, catalog: await pickCatalogTests(), memo };
 }
 
 async function teardown() {
@@ -100,7 +103,8 @@ function as(token) {
   return {
     get: path => auth(request(app).get(path)),
     post: (path, body) => auth(request(app).post(path)).send(body || {}),
+    put: (path, body) => auth(request(app).put(path)).send(body || {}),
   };
 }
 
-module.exports = { setup, teardown, as, quietValue, PATIENT, prisma };
+module.exports = { setup, teardown, as, quietValue, PATIENT, USER_PREFIX, prisma };
