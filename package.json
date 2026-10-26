@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "test:unit": "node --test \"test/unit/*.test.js\"",
     "prisma:generate": "prisma generate",
     "migrate:new": "prisma migrate dev --create-only",
     "migrate:deploy": "prisma migrate deploy",
@@ -25,7 +27,8 @@
     "pdfkit": "^0.20.2"
   },
   "devDependencies": {
-    "prisma": "^5.18.0"
+    "prisma": "^5.18.0",
+    "supertest": "^7.1.4"
   },
   "allowScripts": {
     "@prisma/client@5.22.0": true,

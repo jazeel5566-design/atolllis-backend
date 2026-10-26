@@ -27,7 +27,7 @@ npm run migrate:deploy   # apply pending migrations to the database in .env (the
 npm run migrate:status   # compare prisma/migrations with the database
 ```
 
-There are no tests, no linter, and no build step. A locally running server reads and writes the dev branch; writes there are fine, but it holds a copy of real patient data, so it stays on this machine.
+`npm test` runs everything (`node --test`, one file at a time); `npm run test:unit` runs only the pure-function tests, which need no database. The API tests in `test/api/` drive the real app with supertest against the dev branch: `test/api/fixtures.js` checks the branch with `assertDevBranch()`, creates "ZZ Test" accounts, patient and `ZZTEST-` memos, picks catalog tests from the real catalog, and deletes all of it afterwards. A change to the visibility rule, the critical-value gate or amendments should come with a test there. There is no linter and no build step. A locally running server reads and writes the dev branch; writes there are fine, but it holds a copy of real patient data, so it stays on this machine.
 
 Env vars (`.env`, see `.env.example`): `DATABASE_URL`, `DIRECT_URL` (same branch, no pooler; used by Prisma migration commands), `DEV_BRANCH_ID`, `JWT_SECRET`, `PORT`.
 
