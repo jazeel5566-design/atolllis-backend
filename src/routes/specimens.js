@@ -5,14 +5,17 @@ const { logAudit } = require('../utils/audit');
 const { uid } = require('../utils/id');
 const { resolveRejectionReason } = require('../utils/rejection');
 const { amendmentsFor, WITHDRAWN_TEXT } = require('../utils/amendment');
+const { inTransaction } = require('../utils/transaction');
+const { HttpError } = require('../utils/http-error');
 
 router.use(requireAuth);
 
 // Writes the structured record of one rejection decision. `resolved` comes from
 // resolveRejectionReason(); the facility name is snapshotted the same way the audit log does it.
-async function recordRejection(specimen, user, resolved) {
-  const facility = await prisma.facility.findUnique({ where: { id: user.facilityId }, select: { name: true } });
-  return prisma.specimenRejection.create({
+// `db` is the transaction the rejection is part of.
+async function recordRejection(db, specimen, user, resolved) {
+  const facility = await db.facility.findUnique({ where: { id: user.facilityId }, select: { name: true } });
+  return db.specimenRejection.create({
     data: {
       id: uid('REJ'), specimenId: specimen.id,
       facilityId: user.facilityId, facilityName: facility ? facility.name : 'Unknown',
@@ -163,7 +166,7 @@ router.post('/:specimenNumber/load-analyser', requireCapability('process'), asyn
   if (!toLoad.length) return res.status(409).json({ error: 'Nothing on this specimen is awaiting the analyser.' });
 
   await prisma.orderTest.updateMany({
-    where: { id: { in: toLoad.map(t => t.id) } },
+    where: { id: { in: toLoad.map(t => t.id) }, status: 'received' },
     data: { status: 'processing' },
   });
   await logAudit(req.user, { action: 'load_analyser', entityType: 'Specimen', entityId: specimen.id, details: `Loaded specimen ${specimen.specimenNumber} to analyser — ${toLoad.length} test(s)` });
@@ -193,8 +196,11 @@ router.post('/:specimenNumber/accept', requireCapability('accept'), async (req, 
   if (specimen.order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's specimen" });
   if (specimen.status !== 'collected') return res.status(409).json({ error: `Specimen is already ${specimen.status}` });
 
-  await prisma.specimen.update({ where: { id: specimen.id }, data: { status: 'received', acceptedAt: new Date(), acceptedBy } });
-  await prisma.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'received' } });
+  await inTransaction(async tx => {
+    const claimed = await tx.specimen.updateMany({ where: { id: specimen.id, status: 'collected' }, data: { status: 'received', acceptedAt: new Date(), acceptedBy } });
+    if (!claimed.count) throw new HttpError(409, 'Someone else decided on this specimen meanwhile — scan it again to see.');
+    await tx.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'received' } });
+  });
   await logAudit(req.user, { action: 'accept', entityType: 'Specimen', entityId: specimen.id, details: `Accepted specimen ${specimen.specimenNumber} (${specimen.category})` });
 
   const refreshed = await prisma.specimen.findUnique({ where: { id: specimen.id }, include: { order: { include: { tests: true, patient: true } } } });
@@ -216,9 +222,12 @@ router.post('/:specimenNumber/reject', requireCapability('accept'), async (req, 
 
   // Specimen.rejectionReason keeps the readable text for display; who/when/which-reason live on the
   // SpecimenRejection row (acceptedBy/acceptedAt are no longer borrowed for a rejection).
-  await prisma.specimen.update({ where: { id: specimen.id }, data: { status: 'rejected', rejectionReason: resolved.text } });
-  await prisma.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'rejected' } });
-  const rejection = await recordRejection(specimen, req.user, resolved);
+  const rejection = await inTransaction(async tx => {
+    const claimed = await tx.specimen.updateMany({ where: { id: specimen.id, status: 'collected' }, data: { status: 'rejected', rejectionReason: resolved.text } });
+    if (!claimed.count) throw new HttpError(409, 'Someone else decided on this specimen meanwhile — scan it again to see.');
+    await tx.orderTest.updateMany({ where: { specimenId: specimen.id, status: 'collected' }, data: { status: 'rejected' } });
+    return recordRejection(tx, specimen, req.user, resolved);
+  });
   await logAudit(req.user, { action: 'reject', entityType: 'Specimen', entityId: specimen.id, details: `Rejected specimen ${specimen.specimenNumber} (${specimen.category}) — ${resolved.text}` });
 
   const refreshed = await prisma.specimen.findUnique({ where: { id: specimen.id }, include: { order: { include: { tests: true, patient: true } } } });
@@ -249,7 +258,7 @@ router.post('/:specimenNumber/receive-referral', requireCapability('process'), a
   const toReceive = awaitingReceiptHere(specimen, req.user.facilityId);
   if (!toReceive.length) return res.status(409).json({ error: 'Nothing on this specimen is awaiting receipt at your facility.' });
 
-  await prisma.orderTest.updateMany({ where: { id: { in: toReceive.map(t => t.id) } }, data: { status: 'received' } });
+  await prisma.orderTest.updateMany({ where: { id: { in: toReceive.map(t => t.id) }, status: 'awaiting_receipt' }, data: { status: 'received' } });
   await logAudit(req.user, { action: 'receive_referral', entityType: 'Specimen', entityId: specimen.id, details: `Received referred specimen ${specimen.specimenNumber} for memo ${specimen.order.memoNumber}` });
   res.json({ specimenNumber: specimen.specimenNumber, received: toReceive.length });
 });
@@ -273,18 +282,21 @@ router.post('/:specimenNumber/reject-referral', requireCapability('accept'), asy
   if (!toReject.length) return res.status(409).json({ error: 'Nothing on this specimen is awaiting receipt at your facility.' });
 
   const rejectedIds = new Set(toReject.map(t => t.id));
-  await prisma.orderTest.updateMany({
-    where: { id: { in: toReject.map(t => t.id) } },
-    data: { status: 'rejected', referred: false, performingFacilityId: specimen.order.orderingFacilityId },
+  const rejection = await inTransaction(async tx => {
+    const moved = await tx.orderTest.updateMany({
+      where: { id: { in: toReject.map(t => t.id) }, status: 'awaiting_receipt' },
+      data: { status: 'rejected', referred: false, performingFacilityId: specimen.order.orderingFacilityId },
+    });
+    if (moved.count !== toReject.length) throw new HttpError(409, 'Someone else decided on this specimen meanwhile — scan it again to see.');
+    // The tube itself is only marked rejected once nothing on it is still in play.
+    const stillActive = specimen.order.tests.some(t =>
+      t.specimenId === specimen.id && !rejectedIds.has(t.id) && !['rejected', 'deselected'].includes(t.status)
+    );
+    if (!stillActive) {
+      await tx.specimen.update({ where: { id: specimen.id }, data: { status: 'rejected', rejectionReason: resolved.text } });
+    }
+    return recordRejection(tx, specimen, req.user, resolved);
   });
-  // The tube itself is only marked rejected once nothing on it is still in play.
-  const stillActive = specimen.order.tests.some(t =>
-    t.specimenId === specimen.id && !rejectedIds.has(t.id) && !['rejected', 'deselected'].includes(t.status)
-  );
-  if (!stillActive) {
-    await prisma.specimen.update({ where: { id: specimen.id }, data: { status: 'rejected', rejectionReason: resolved.text } });
-  }
-  const rejection = await recordRejection(specimen, req.user, resolved);
   await logAudit(req.user, { action: 'reject_referral', entityType: 'Specimen', entityId: specimen.id, details: `Rejected referred specimen ${specimen.specimenNumber} (${specimen.category}) for memo ${specimen.order.memoNumber} — ${resolved.text}` });
 
   res.json({ specimenNumber: specimen.specimenNumber, rejected: toReject.length, rejectionReason: resolved.text, rejectedBy: rejection.rejectedBy });

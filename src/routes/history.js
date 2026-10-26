@@ -14,9 +14,9 @@ router.get('/', async (req, res) => {
   const patients = await prisma.patient.findMany({
     where: {
       OR: [
-        { name: { contains: query } },
-        { hospitalNumber: { contains: query } },
-        { idNumber: { contains: query } },
+        { name: { contains: query, mode: 'insensitive' } },
+        { hospitalNumber: { contains: query, mode: 'insensitive' } },
+        { idNumber: { contains: query, mode: 'insensitive' } },
       ],
     },
     take: 20,

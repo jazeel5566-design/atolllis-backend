@@ -7,6 +7,10 @@ const {
   CRITICAL_OVERDUE_MINUTES, CRITICAL_ESCALATE_MINUTES, CRITICAL_FLAG_LABELS, criticalFlagFor, minutesSince, escalationLevel,
 } = require('../utils/critical');
 const { describeAmendment, flagOf, changesMeaning, WITHDRAWN_TEXT } = require('../utils/amendment');
+const { inTransaction } = require('../utils/transaction');
+const { HttpError } = require('../utils/http-error');
+
+const CHANGED_MEANWHILE = 'This result was changed by someone else meanwhile — reload to see it.';
 
 router.use(requireAuth);
 
@@ -166,27 +170,29 @@ router.post('/:orderId/:code/critical-notification', requireCapability('process'
   if (!flag) return res.status(409).json({ error: 'This result is not a critical value' });
 
   const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId }, select: { name: true } });
-  const attempt = await prisma.criticalNotification.create({
-    data: {
-      id: uid('CRN'), orderTestId: t.id,
-      facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
-      personName, personRole, method: body.method, outcome: body.outcome,
-      readBack: reached && !!body.readBack, note, recordedBy: req.user.name,
-    },
-  });
   const who = personRole ? `${personName} (${personRole})` : personName;
-  let updated = t;
-  if (reached) {
-    updated = await prisma.orderTest.update({
-      where: { id: t.id },
+  const { attempt, updated } = await inTransaction(async tx => {
+    const attempt = await tx.criticalNotification.create({
+      data: {
+        id: uid('CRN'), orderTestId: t.id,
+        facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+        personName, personRole, method: body.method, outcome: body.outcome,
+        readBack: reached && !!body.readBack, note, recordedBy: req.user.name,
+      },
+    });
+    if (!reached) return { attempt, updated: t };
+    const marked = await tx.orderTest.updateMany({
+      where: { id: t.id, status: 'interfaced', criticalNotifiedAt: null },
       data: { criticalFlag: flag, criticalNotifiedTo: who, criticalNotifiedAt: attempt.createdAt },
     });
+    if (!marked.count) throw new HttpError(409, CHANGED_MEANWHILE);
     // If this value is itself a correction of an earlier report, the same call covers telling them.
-    await prisma.resultAmendment.updateMany({
+    await tx.resultAmendment.updateMany({
       where: { orderTestId: t.id, notifyRequired: true, notifiedAt: null },
       data: { notifiedTo: who, notifiedMethod: body.method, notifiedAt: attempt.createdAt, notifiedBy: req.user.name },
     });
-  }
+    return { attempt, updated: await tx.orderTest.findUnique({ where: { id: t.id } }) };
+  });
   await logAudit(req.user, {
     action: reached ? 'critical_notified' : 'critical_attempt_failed', entityType: 'OrderTest', entityId: t.id,
     details: `${code}: ${t.value} ${CRITICAL_FLAG_LABELS[flag]} — ${reached ? 'notified' : 'could not reach'} ${who} after ${minutesSince(t.enteredAt, attempt.createdAt)} min`,
@@ -209,10 +215,12 @@ router.post('/:orderId/:code/manual-result', requireCapability('process'), async
 
   const tc = await prisma.testDefinition.findUnique({ where: { code } });
   const criticalFlag = await criticalFlagForEntry(orderId, code, value);
-  const updated = await prisma.orderTest.update({
-    where: { id: t.id },
+  const entered = await prisma.orderTest.updateMany({
+    where: { id: t.id, status: { in: ['received', 'processing'] } },
     data: { value: String(value), unit: tc ? tc.units : null, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name, criticalFlag },
   });
+  if (!entered.count) return res.status(409).json({ error: CHANGED_MEANWHILE });
+  const updated = await prisma.orderTest.findUnique({ where: { id: t.id } });
   await logAudit(req.user, { action: 'manual_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${value} (manual entry)` });
   res.json(updated);
 });
@@ -245,34 +253,37 @@ router.post('/:orderId/:code/culture-result', requireCapability('process'), asyn
   if (!t || t.performingFacilityId !== req.user.facilityId) return res.status(404).json({ error: 'Not found' });
   if (t.status !== 'received') return res.status(409).json({ error: `Test is not awaiting entry (status: ${t.status})` });
 
-  // Replace any previous attempt cleanly rather than trying to diff it.
-  const existing = await prisma.cultureResult.findUnique({ where: { orderTestId: t.id } });
-  if (existing) await prisma.cultureResult.delete({ where: { id: existing.id } });
+  const { cultureResult, updated, summary } = await inTransaction(async tx => {
+    // Replace any previous attempt cleanly rather than trying to diff it.
+    await tx.cultureResult.deleteMany({ where: { orderTestId: t.id } });
 
-  const cultureResult = await prisma.cultureResult.create({
-    data: {
-      id: uid('CULT'), orderTestId: t.id, growthStatus,
-      organisms: {
-        create: (organisms || []).map(o => ({
-          id: uid('OF'), organismId: o.organismId, colonyCount: o.colonyCount || null,
-          sensitivities: {
-            create: (o.sensitivities || []).filter(s => ['S', 'I', 'R'].includes(s.result)).map(s => ({
-              id: uid('AS'), antibioticId: s.antibioticId, result: s.result,
-            })),
-          },
-        })),
+    const cultureResult = await tx.cultureResult.create({
+      data: {
+        id: uid('CULT'), orderTestId: t.id, growthStatus,
+        organisms: {
+          create: (organisms || []).map(o => ({
+            id: uid('OF'), organismId: o.organismId, colonyCount: o.colonyCount || null,
+            sensitivities: {
+              create: (o.sensitivities || []).filter(s => ['S', 'I', 'R'].includes(s.result)).map(s => ({
+                id: uid('AS'), antibioticId: s.antibioticId, result: s.result,
+              })),
+            },
+          })),
+        },
       },
-    },
-    include: { organisms: { include: { organism: true, sensitivities: { include: { antibiotic: true } } } } },
-  });
+      include: { organisms: { include: { organism: true, sensitivities: { include: { antibiotic: true } } } } },
+    });
 
-  const summary = growthStatus === 'no_growth' ? 'No growth'
-    : growthStatus === 'contaminated' ? 'Contaminated specimen'
-    : `Growth: ${cultureResult.organisms.map(o => o.organism.name).join(', ')}`;
+    const summary = growthStatus === 'no_growth' ? 'No growth'
+      : growthStatus === 'contaminated' ? 'Contaminated specimen'
+      : `Growth: ${cultureResult.organisms.map(o => o.organism.name).join(', ')}`;
 
-  const updated = await prisma.orderTest.update({
-    where: { id: t.id },
-    data: { value: summary, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
+    const entered = await tx.orderTest.updateMany({
+      where: { id: t.id, status: 'received' },
+      data: { value: summary, status: 'interfaced', enteredAt: new Date(), enteredBy: req.user.name },
+    });
+    if (!entered.count) throw new HttpError(409, CHANGED_MEANWHILE);
+    return { cultureResult, summary, updated: await tx.orderTest.findUnique({ where: { id: t.id } }) };
   });
   await logAudit(req.user, { action: 'culture_result', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${summary}` });
   res.json({ ...updated, cultureResult });
@@ -294,10 +305,12 @@ router.post('/:orderId/:code/certify', requireCapability('certify'), async (req,
     return res.status(400).json({ error: 'This is a critical value — record who was notified before certifying.', requiresCriticalNotification: true, flag: criticalFlag, flagLabel: CRITICAL_FLAG_LABELS[criticalFlag] });
   }
 
-  const updated = await prisma.orderTest.update({
-    where: { id: t.id },
+  const certified = await prisma.orderTest.updateMany({
+    where: { id: t.id, status: 'interfaced' },
     data: { status: 'completed', validatedBy, validatedAt: new Date() },
   });
+  if (!certified.count) return res.status(409).json({ error: CHANGED_MEANWHILE });
+  const updated = await prisma.orderTest.findUnique({ where: { id: t.id } });
   await logAudit(req.user, { action: 'certify', entityType: 'OrderTest', entityId: t.id, details: `${code}: ${t.value} — certified${criticalFlag ? ` (critical value, notified ${t.criticalNotifiedTo})` : ''}` });
 
   // Reflex suggestions — never auto-ordered. Just surfaced here for the certifying staff to act
@@ -401,37 +414,42 @@ router.post('/:orderId/:code/amend', requireCapability('certify'), async (req, r
   const held = !!newCritical && !reached; // back to awaiting validation, under the critical-value rule
   const newUnit = kind === 'corrected' ? (tc ? tc.units : t.unit) : null;
 
-  const amendment = await prisma.resultAmendment.create({
-    data: {
-      id: uid('AMD'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
-      kind, reason,
-      previousValue: t.value, previousUnit: t.unit, previousFlag,
-      previousEnteredBy: t.enteredBy, previousEnteredAt: t.enteredAt, previousValidatedBy: t.validatedBy, previousValidatedAt: t.validatedAt,
-      newValue, newUnit, newFlag,
-      amendedBy: req.user.name, amendedAt: now, notifyRequired,
-      ...(reached ? { notifiedTo: notification.who, notifiedMethod: notification.method, notifiedAt: now, notifiedBy: req.user.name } : {}),
-    },
-  });
-  if (newCritical && notification) {
-    await prisma.criticalNotification.create({
+  const { amendment, updated } = await inTransaction(async tx => {
+    // First, and only if the result is still exactly what was checked above.
+    const changed = await tx.orderTest.updateMany({
+      where: { id: t.id, status: 'completed', value: t.value },
       data: {
-        id: uid('CRN'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
-        personName: notification.personName, personRole: notification.personRole, method: notification.method, outcome: notification.outcome,
-        readBack: reached && notification.readBack, note: 'Amended result', recordedBy: req.user.name, createdAt: now,
+        value: kind === 'withdrawn' ? WITHDRAWN_TEXT : newValue, unit: newUnit,
+        enteredAt: now, enteredBy: req.user.name,
+        status: held ? 'interfaced' : 'completed',
+        validatedBy: held ? null : req.user.name, validatedAt: held ? null : now,
+        criticalFlag: newCritical,
+        criticalNotifiedTo: newCritical && reached ? notification.who : null,
+        criticalNotifiedAt: newCritical && reached ? now : null,
       },
     });
-  }
-  const updated = await prisma.orderTest.update({
-    where: { id: t.id },
-    data: {
-      value: kind === 'withdrawn' ? WITHDRAWN_TEXT : newValue, unit: newUnit,
-      enteredAt: now, enteredBy: req.user.name,
-      status: held ? 'interfaced' : 'completed',
-      validatedBy: held ? null : req.user.name, validatedAt: held ? null : now,
-      criticalFlag: newCritical,
-      criticalNotifiedTo: newCritical && reached ? notification.who : null,
-      criticalNotifiedAt: newCritical && reached ? now : null,
-    },
+    if (!changed.count) throw new HttpError(409, CHANGED_MEANWHILE);
+    const amendment = await tx.resultAmendment.create({
+      data: {
+        id: uid('AMD'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+        kind, reason,
+        previousValue: t.value, previousUnit: t.unit, previousFlag,
+        previousEnteredBy: t.enteredBy, previousEnteredAt: t.enteredAt, previousValidatedBy: t.validatedBy, previousValidatedAt: t.validatedAt,
+        newValue, newUnit, newFlag,
+        amendedBy: req.user.name, amendedAt: now, notifyRequired,
+        ...(reached ? { notifiedTo: notification.who, notifiedMethod: notification.method, notifiedAt: now, notifiedBy: req.user.name } : {}),
+      },
+    });
+    if (newCritical && notification) {
+      await tx.criticalNotification.create({
+        data: {
+          id: uid('CRN'), orderTestId: t.id, facilityId: req.user.facilityId, facilityName: facility ? facility.name : 'Unknown',
+          personName: notification.personName, personRole: notification.personRole, method: notification.method, outcome: notification.outcome,
+          readBack: reached && notification.readBack, note: 'Amended result', recordedBy: req.user.name, createdAt: now,
+        },
+      });
+    }
+    return { amendment, updated: await tx.orderTest.findUnique({ where: { id: t.id } }) };
   });
   const told = !notification ? '' : reached ? ` — told ${notification.who}` : ` — could not reach ${notification.who}`;
   await logAudit(req.user, {

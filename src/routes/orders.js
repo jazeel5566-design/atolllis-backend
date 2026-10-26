@@ -2,8 +2,11 @@ const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
 const { uid } = require('../utils/id');
-const { needsReferral, referralTarget, generateSpecimenNumber } = require('../utils/domain');
+const { needsReferral, referralTarget } = require('../utils/domain');
 const { logAudit } = require('../utils/audit');
+const { inTransaction } = require('../utils/transaction');
+const { nextSpecimenNumber } = require('../utils/specimen-number');
+const { HttpError } = require('../utils/http-error');
 
 router.use(requireAuth);
 
@@ -81,31 +84,23 @@ router.get('/:id', async (req, res) => {
 });
 
 // ---------- 1. Memo import (fetch from HIS/Billing) ----------
+const ORDER_INCLUDE = { tests: true, patient: true, specimens: true, ward: true };
+
 router.post('/import', requireCapability('collect'), async (req, res) => {
   const { memoNumber } = req.body || {};
   if (!memoNumber) return res.status(400).json({ error: 'memoNumber is required' });
 
-  const existing = await prisma.order.findUnique({ where: { memoNumber }, include: { tests: true, patient: true, specimens: true, ward: true } });
-  if (existing) {
-    return res.json(mapOrderForViewer(existing, req.user.facilityId));
-  }
+  // A memo already fetched is shown again only to the facility that fetched it — anyone else would
+  // otherwise see another facility's patient just by typing a memo number.
+  const fetchedBefore = order => (order.orderingFacilityId === req.user.facilityId
+    ? res.json(mapOrderForViewer(order, req.user.facilityId))
+    : res.status(409).json({ error: `Memo "${memoNumber}" has already been fetched by another facility.` }));
+
+  const existing = await prisma.order.findUnique({ where: { memoNumber }, include: ORDER_INCLUDE });
+  if (existing) return fetchedBefore(existing);
 
   const memo = await prisma.mockHisMemo.findUnique({ where: { memoNumber } });
   if (!memo) return res.status(404).json({ error: `Memo "${memoNumber}" was not found in the HIS/Billing system.` });
-
-  let patient = memo.patientHospitalNumber
-    ? await prisma.patient.findFirst({ where: { hospitalNumber: memo.patientHospitalNumber } })
-    : null;
-  if (!patient) {
-    patient = await prisma.patient.create({
-      data: {
-        id: uid('PT'),
-        name: memo.patientName, idNumber: memo.patientIdNumber, hospitalNumber: memo.patientHospitalNumber,
-        dob: memo.patientDob, sex: memo.patientSex, address: memo.patientAddress,
-        homeFacilityId: req.user.facilityId,
-      },
-    });
-  }
 
   const rawCodes = JSON.parse(memo.testCodes);
   const [directMatches, aliases] = await Promise.all([
@@ -122,20 +117,42 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
   });
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: resolvedCodes } } });
 
-  const order = await prisma.order.create({
-    data: {
-      id: uid('ORD'),
-      memoSource: memo.source, memoNumber: memo.memoNumber,
-      patientId: patient.id, orderingFacilityId: req.user.facilityId, orderedBy: memo.orderedBy,
-      tests: {
-        create: resolvedCodes.map(code => {
-          const tc = catalogTests.find(c => c.code === code);
-          return { id: uid('OT'), code, name: tc ? tc.name : code, performingFacilityId: req.user.facilityId, status: 'ordered' };
-        }),
-      },
-    },
-    include: { tests: true, patient: true, specimens: true, ward: true },
-  });
+  let order;
+  try {
+    order = await inTransaction(async tx => {
+      let patient = memo.patientHospitalNumber
+        ? await tx.patient.findFirst({ where: { hospitalNumber: memo.patientHospitalNumber } })
+        : null;
+      if (!patient) {
+        patient = await tx.patient.create({
+          data: {
+            id: uid('PT'),
+            name: memo.patientName, idNumber: memo.patientIdNumber, hospitalNumber: memo.patientHospitalNumber,
+            dob: memo.patientDob, sex: memo.patientSex, address: memo.patientAddress,
+            homeFacilityId: req.user.facilityId,
+          },
+        });
+      }
+      return tx.order.create({
+        data: {
+          id: uid('ORD'),
+          memoSource: memo.source, memoNumber: memo.memoNumber,
+          patientId: patient.id, orderingFacilityId: req.user.facilityId, orderedBy: memo.orderedBy,
+          tests: {
+            create: resolvedCodes.map(code => {
+              const tc = catalogTests.find(c => c.code === code);
+              return { id: uid('OT'), code, name: tc ? tc.name : code, performingFacilityId: req.user.facilityId, status: 'ordered' };
+            }),
+          },
+        },
+        include: ORDER_INCLUDE,
+      });
+    });
+  } catch (e) {
+    if (e.code !== 'P2002') throw e;
+    // Fetched by someone else at the same moment — theirs stands, and nothing of this one was saved.
+    return fetchedBefore(await prisma.order.findUnique({ where: { memoNumber }, include: ORDER_INCLUDE }));
+  }
   await logAudit(req.user, { action: 'memo_imported', entityType: 'Order', entityId: order.id, details: `Fetched memo ${memo.memoNumber} for ${memo.patientName}` });
   res.status(201).json(mapOrderForViewer(order, req.user.facilityId));
 });
@@ -146,13 +163,65 @@ router.delete('/:id', requireCapability('collect'), async (req, res) => {
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
   if (order.sampleStatus) return res.status(409).json({ error: 'Cannot cancel — already collected' });
-  await prisma.orderTest.deleteMany({ where: { orderId: order.id } });
-  await prisma.order.delete({ where: { id: order.id } });
+  // Its tests go with it (cascade); the condition makes sure nobody collected it meanwhile.
+  const removed = await prisma.order.deleteMany({ where: { id: order.id, sampleStatus: null } });
+  if (!removed.count) return res.status(409).json({ error: 'Cannot cancel — already collected' });
   await logAudit(req.user, { action: 'memo_cancelled', entityType: 'Order', entityId: order.id, details: `Cancelled memo ${order.memoNumber}` });
   res.json({ ok: true });
 });
 
 // ---------- 2. Sample Collection (select tests, generate one barcode per specimen bottle) ----------
+
+// One Specimen (one barcode) per distinct (category, bottle type) pair among `tests` — a
+// department (e.g. Serology) gets its own tube/barcode even if it happens to share a bottle type
+// with another department (e.g. Biochemistry), since acceptance and the analyzer interface both
+// operate at this level. Tests a higher-level lab must perform go to 'awaiting_referral' — referral
+// is assigned and sent from Sample Collection — the rest to 'collected', awaiting acceptance.
+// Each test moves only if it is still in one of `fromStatuses`; otherwise someone else got there
+// first and the whole transaction is refused. `isStatFor(catalogTest)` sets STAT (collection only).
+async function drawSpecimens(tx, { orderId, tests, facility, collectedBy, fromStatuses, isStatFor }) {
+  const [catalogTests, categories] = await Promise.all([
+    tx.testDefinition.findMany({ where: { code: { in: tests.map(t => t.code) } } }),
+    tx.testCategory.findMany(),
+  ]);
+  const letterFor = (categoryName) => {
+    const match = categories.find(c => c.name === categoryName);
+    return match ? match.letter : (categoryName || 'X').trim().charAt(0).toUpperCase() || 'X';
+  };
+
+  const groups = {}; // "category||bottleType" -> { category, bottleType, tests:[OrderTest,...] }
+  tests.forEach(t => {
+    const tc = catalogTests.find(c => c.code === t.code);
+    const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
+    const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
+    const key = `${category}||${bottleType}`;
+    (groups[key] = groups[key] || { category, bottleType, tests: [] }).tests.push(t);
+  });
+
+  const now = new Date();
+  const specimens = [];
+  for (const { category, bottleType, tests: groupTests } of Object.values(groups)) {
+    const specimenNumber = await nextSpecimenNumber(tx, letterFor(category), now);
+    const specimen = await tx.specimen.create({
+      data: { id: uid('SPC'), specimenNumber, orderId, category, bottleType, status: 'collected', collectedAt: now, collectedBy },
+    });
+    specimens.push(specimen);
+    for (const t of groupTests) {
+      const tc = catalogTests.find(c => c.code === t.code);
+      const needsRef = tc ? needsReferral(tc, facility) : false;
+      const moved = await tx.orderTest.updateMany({
+        where: { id: t.id, status: { in: fromStatuses } },
+        data: {
+          status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id,
+          ...(isStatFor ? { isStat: isStatFor(tc) } : {}),
+        },
+      });
+      if (!moved.count) throw new HttpError(409, `${t.code} was collected by someone else meanwhile — reload the order.`);
+    }
+  }
+  return specimens;
+}
+
 router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
   const { selectedCodes, patientType, wardId, statMode } = req.body || {};
@@ -174,71 +243,31 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
   }
 
   const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId } });
-  const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: order.tests.map(t => t.code) } } });
-  const categories = await prisma.testCategory.findMany();
-  const letterFor = (categoryName) => {
-    const match = categories.find(c => c.name === categoryName);
-    return match ? match.letter : (categoryName || 'X').trim().charAt(0).toUpperCase() || 'X';
-  };
-
-  await prisma.order.update({
-    where: { id },
-    data: { sampleStatus: 'collected', collectedAt: new Date(), collectedBy, patientType: patientType || null, wardId: finalWardId },
-  });
-
   const selected = new Set(selectedCodes || []);
 
-  // One Specimen (one barcode) per distinct (category, bottle type) pair among the selected tests —
-  // a department (e.g. Serology) gets its own tube/barcode even if it happens to share a bottle
-  // type with another department (e.g. Biochemistry), since acceptance and the analyzer interface
-  // both operate at this level.
-  const groups = {}; // "category||bottleType" -> { category, bottleType, tests:[OrderTest,...] }
-  order.tests.forEach(t => {
-    if (!selected.has(t.code)) return;
-    const tc = catalogTests.find(c => c.code === t.code);
-    const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
-    const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
-    const key = `${category}||${bottleType}`;
-    (groups[key] = groups[key] || { category, bottleType, tests: [] }).tests.push(t);
-  });
-
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dailySeq = {}; // category -> running count for today, fetched once per category then incremented in-process
-
-  for (const key of Object.keys(groups)) {
-    const { category, bottleType, tests } = groups[key];
-    if (dailySeq[category] === undefined) {
-      dailySeq[category] = await prisma.specimen.count({ where: { category, createdAt: { gte: startOfDay } } });
-    }
-    dailySeq[category] += 1;
-    const specimenNumber = generateSpecimenNumber(letterFor(category), dailySeq[category], now);
-
-    const specimen = await prisma.specimen.create({
-      data: { id: uid('SPC'), specimenNumber, orderId: id, category, bottleType, status: 'collected', collectedAt: now, collectedBy },
+  await inTransaction(async tx => {
+    const claimed = await tx.order.updateMany({
+      where: { id, sampleStatus: null },
+      data: { sampleStatus: 'collected', collectedAt: new Date(), collectedBy, patientType: patientType || null, wardId: finalWardId },
     });
-    await Promise.all(tests.map(t => {
-      const tc = catalogTests.find(c => c.code === t.code);
-      const needsRef = tc ? needsReferral(tc, facility) : false;
+    if (!claimed.count) throw new HttpError(409, 'Already collected');
+
+    await drawSpecimens(tx, {
+      orderId: id, tests: order.tests.filter(t => selected.has(t.code)), facility, collectedBy, fromStatuses: ['ordered'],
       // STAT is a request, not a right — it only actually applies if the catalog itself marks
       // this specific test as STAT-eligible. A blanket "mark this sample STAT" click never makes
       // a routine test urgent just because someone asked.
-      const isStat = !!(statMode && tc && tc.isStat);
-      // Higher-level tests go straight to "ready to refer" here at collection — referral is
-      // assigned and sent from Sample Collection, not later. Local tests await acceptance as usual.
-      return prisma.orderTest.update({
-        where: { id: t.id },
-        data: { status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id, isStat },
-      });
-    }));
-  }
+      isStatFor: tc => !!(statMode && tc && tc.isStat),
+    });
 
-  // Deselected tests stay on the order (audit trail) but belong to no specimen — nothing was drawn.
-  await Promise.all(order.tests.filter(t => !selected.has(t.code)).map(t =>
-    prisma.orderTest.update({ where: { id: t.id }, data: { status: 'deselected' } })
-  ));
+    // Deselected tests stay on the order (audit trail) but belong to no specimen — nothing was drawn.
+    await tx.orderTest.updateMany({
+      where: { id: { in: order.tests.filter(t => !selected.has(t.code)).map(t => t.id) }, status: 'ordered' },
+      data: { status: 'deselected' },
+    });
+  });
 
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'collect', entityType: 'Order', entityId: id, details: `Collected memo ${order.memoNumber} — ${full.specimens.length} specimen(s)` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
@@ -247,7 +276,8 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
 // rejected at acceptance, or tests just added afterward (e.g. via a reflex rule) that were never
 // drawn in the first place. The order's own collectedAt/collectedBy (the very first draw for this
 // memo) never changes — only the new specimen(s) get a fresh collection timestamp and collector,
-// same as a normal collect, tracked per-specimen.
+// same as a normal collect, tracked per-specimen. The old rejected specimen stays in place,
+// untouched, as the record of what happened to the original draw.
 router.post('/:id/recollect', requireCapability('collect'), async (req, res) => {
   const { id } = req.params;
   const { testCodes } = req.body || {};
@@ -258,54 +288,14 @@ router.post('/:id/recollect', requireCapability('collect'), async (req, res) => 
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.orderingFacilityId !== req.user.facilityId) return res.status(403).json({ error: "Not this facility's order" });
 
-  const targetTests = order.tests.filter(t => testCodes.includes(t.code) && ['rejected', 'ordered'].includes(t.status));
+  const collectable = ['rejected', 'ordered'];
+  const targetTests = order.tests.filter(t => testCodes.includes(t.code) && collectable.includes(t.status));
   if (!targetTests.length) return res.status(409).json({ error: 'None of the given tests are currently collectable (must be rejected or newly added).' });
 
   const facility = await prisma.facility.findUnique({ where: { id: req.user.facilityId } });
-  const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: targetTests.map(t => t.code) } } });
-  const categories = await prisma.testCategory.findMany();
-  const letterFor = (categoryName) => {
-    const match = categories.find(c => c.name === categoryName);
-    return match ? match.letter : (categoryName || 'X').trim().charAt(0).toUpperCase() || 'X';
-  };
+  await inTransaction(tx => drawSpecimens(tx, { orderId: id, tests: targetTests, facility, collectedBy, fromStatuses: collectable }));
 
-  const groups = {};
-  targetTests.forEach(t => {
-    const tc = catalogTests.find(c => c.code === t.code);
-    const category = (tc && tc.category && tc.category.trim()) ? tc.category.trim() : 'General';
-    const bottleType = (tc && tc.specimenType && tc.specimenType.trim()) ? tc.specimenType.trim() : 'Unspecified Specimen';
-    const key = `${category}||${bottleType}`;
-    (groups[key] = groups[key] || { category, bottleType, tests: [] }).tests.push(t);
-  });
-
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dailySeq = {};
-
-  for (const key of Object.keys(groups)) {
-    const { category, bottleType, tests } = groups[key];
-    if (dailySeq[category] === undefined) {
-      dailySeq[category] = await prisma.specimen.count({ where: { category, createdAt: { gte: startOfDay } } });
-    }
-    dailySeq[category] += 1;
-    const specimenNumber = generateSpecimenNumber(letterFor(category), dailySeq[category], now);
-
-    // A brand-new specimen row — the old rejected one stays in place, untouched, as the record of
-    // what happened to the original draw.
-    const specimen = await prisma.specimen.create({
-      data: { id: uid('SPC'), specimenNumber, orderId: id, category, bottleType, status: 'collected', collectedAt: now, collectedBy },
-    });
-    await Promise.all(tests.map(t => {
-      const tc = catalogTests.find(c => c.code === t.code);
-      const needsRef = tc ? needsReferral(tc, facility) : false;
-      return prisma.orderTest.update({
-        where: { id: t.id },
-        data: { status: needsRef ? 'awaiting_referral' : 'collected', needsReferral: needsRef, specimenId: specimen.id },
-      });
-    }));
-  }
-
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'recollect', entityType: 'Order', entityId: id, details: `Recollected rejected test(s) for memo ${order.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));
 });
@@ -324,23 +314,25 @@ router.post('/:id/refer', requireCapability('collect'), async (req, res) => {
   const catalogTests = await prisma.testDefinition.findMany({ where: { code: { in: order.tests.map(t => t.code) } } });
 
   const targetNames = new Set();
-  for (const t of order.tests) {
-    if (t.status !== 'awaiting_referral') continue;
-    const tc = catalogTests.find(c => c.code === t.code);
-    const target = referralTarget(tc, originFacility, facilities);
-    if (!target) continue;
-    await prisma.orderTest.update({
-      where: { id: t.id },
-      data: { referred: true, performingFacilityId: target.id, status: 'awaiting_receipt', referredByName },
-    });
-    targetNames.add(target.name);
-  }
+  await inTransaction(async tx => {
+    for (const t of order.tests) {
+      if (t.status !== 'awaiting_referral') continue;
+      const tc = catalogTests.find(c => c.code === t.code);
+      const target = referralTarget(tc, originFacility, facilities);
+      if (!target) continue;
+      const moved = await tx.orderTest.updateMany({
+        where: { id: t.id, status: 'awaiting_referral' },
+        data: { referred: true, performingFacilityId: target.id, status: 'awaiting_receipt', referredByName },
+      });
+      if (!moved.count) throw new HttpError(409, `${t.code} was referred by someone else meanwhile — reload the order.`);
+      targetNames.add(target.name);
+    }
+    // If nothing local remains (everything on this sample was referred), the referred specimen(s)
+    // never entered 'collected' locally — nothing further to do at the order level.
+    await tx.order.update({ where: { id }, data: { referredAt: new Date(), referredByName } });
+  });
 
-  // If nothing local remains (everything on this sample was referred), the referred specimen(s)
-  // never entered 'collected' locally — nothing further to do at the order level.
-  await prisma.order.update({ where: { id }, data: { referredAt: new Date(), referredByName } });
-
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'refer', entityType: 'Order', entityId: id, details: `Referred memo ${order.memoNumber} to ${Array.from(targetNames).join(' & ')}` });
   res.json({ order: mapOrderForViewer(full, req.user.facilityId), referredTo: Array.from(targetNames) });
 });
@@ -354,7 +346,7 @@ router.post('/:id/receive-referral', requireCapability('process'), async (req, r
     where: { orderId: id, referred: true, performingFacilityId: req.user.facilityId, status: 'awaiting_receipt' },
     data: { status: 'received' },
   });
-  const full = await prisma.order.findUnique({ where: { id }, include: { tests: true, patient: true, specimens: true, ward: true } });
+  const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   if (!full) return res.status(404).json({ error: 'Not found' });
   await logAudit(req.user, { action: 'receive_referral', entityType: 'Order', entityId: id, details: `Received referred sample for memo ${full.memoNumber}` });
   res.json(mapOrderForViewer(full, req.user.facilityId));

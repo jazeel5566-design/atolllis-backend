@@ -324,6 +324,15 @@ model Specimen {
   rejections SpecimenRejection[]
 }
 
+// The last sequence number handed out for one barcode prefix (category letter + Maldives date,
+// e.g. "B261026"). Incremented by the database in a single statement, so two collections at the
+// same moment can never get the same barcode, and a deleted tube never frees its number for reuse.
+// See nextSpecimenNumber() in src/utils/specimen-number.js.
+model SpecimenSequence {
+  prefix String @id
+  last   Int
+}
+
 // One row per rejection decision on a tube. Separate from Specimen because the same tube can be
 // judged by more than one lab: the ordering facility at Sample Acceptance, and — for referred
 // tests — the receiving lab on arrival. reasonId points at RejectionReason (null = "Other", in

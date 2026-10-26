@@ -1,10 +1,12 @@
 require('dotenv').config();
+require('./timezone');
 require('express-async-errors');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { HttpError } = require('./utils/http-error');
 
 const app = express();
 app.set('trust proxy', true); // needed for req.ip to be the real client IP behind Render's proxy
@@ -87,6 +89,9 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  // A unique key already taken — two people saving the same thing at the same moment.
+  if (err && err.code === 'P2002') return res.status(409).json({ error: 'Someone else saved this at the same moment — reload and check before trying again.' });
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });

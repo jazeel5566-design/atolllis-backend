@@ -111,14 +111,19 @@ function evalResult(test, patient, value, at) {
 
 // Specimen barcode format: <category letter><YY><M, unpadded><DD, zero-padded><4-digit sequence>
 // e.g. H268271001 = Hematology, 2026, August (8), the 27th, sequence 1001 for that category/day.
-function generateSpecimenNumber(categoryLetter, sequence, date) {
+// Everything before the sequence. Its length differs between one- and two-digit months, so a
+// barcode never reads as another day's: months 1-9 give 10-character barcodes, 10-12 give 11.
+function specimenPrefix(categoryLetter, date) {
   date = date || new Date();
   const letter = (categoryLetter || 'X').trim().charAt(0).toUpperCase() || 'X';
   const yy = String(date.getFullYear()).slice(-2);
   const m = String(date.getMonth() + 1); // month is intentionally NOT zero-padded
   const dd = String(date.getDate()).padStart(2, '0');
-  const seq = String(sequence).padStart(4, '0');
-  return `${letter}${yy}${m}${dd}${seq}`;
+  return `${letter}${yy}${m}${dd}`;
 }
 
-module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, formatAge, ageParts, AGE_UNIT_WORDS, matchRange, numericValue, evalResult, generateSpecimenNumber };
+function generateSpecimenNumber(categoryLetter, sequence, date) {
+  return specimenPrefix(categoryLetter, date) + String(sequence).padStart(4, '0');
+}
+
+module.exports = { TIER_RANK, needsReferral, referralTarget, calcAge, formatAge, ageParts, AGE_UNIT_WORDS, matchRange, numericValue, evalResult, specimenPrefix, generateSpecimenNumber };
