@@ -9,7 +9,7 @@ AtollLIS — a multi-tier Laboratory Information System (Maldives: Health Centre
 ## Owner rules
 
 - This system uses real hospital data and the real numeric test codes from the lab's own catalog. Never use placeholder codes or invented data.
-- `DATABASE_URL` in `.env` is the **LIVE production Neon database**. Never run `npm run seed`, `npm run setup`, `npm run prisma:migrate`, `prisma migrate dev`, or `prisma migrate reset`.
+- `.env` points at the Neon **dev branch** (`DEV_BRANCH_ID`, `br-fragrant-bonus-az7a0v6w`), a copy of production. Production's URL is kept only in Render's settings, never in `.env`. Before any database work, confirm the branch: `select current_setting('neon.branch_id', true)` must equal `DEV_BRANCH_ID` (`assertDevBranch()` in `src/utils/db-guard.js` does this; tests and scripts must call it). Never run `npm run seed`, `npm run setup`, `npm run prisma:migrate`, or `prisma migrate reset`.
 - Run `npx prisma db push` only after the owner approves it, and stop immediately if Prisma warns about data loss.
 - Deploy order: make changes locally → `npm install` → `npx prisma db push` (schema changes only) → commit and push to GitHub → the owner deploys manually on Render.
 - Before building any feature, present a plan and wait for the owner's "yes". Flag ambiguous requirements instead of assuming.
@@ -24,9 +24,9 @@ npx prisma generate      # regenerate client after editing prisma/schema.prisma 
 npx prisma db push       # applies schema changes to the live DB — owner approval required (see Owner rules)
 ```
 
-There are no tests, no linter, and no build step. A locally running server reads and writes the live database, so verify with read-only requests (`GET /api/health`, list endpoints) unless the owner has agreed to a write.
+There are no tests, no linter, and no build step. A locally running server reads and writes the dev branch; writes there are fine, but it holds a copy of real patient data, so it stays on this machine.
 
-Env vars (`.env`, see `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `PORT`.
+Env vars (`.env`, see `.env.example`): `DATABASE_URL`, `DIRECT_URL` (same branch, no pooler; used by Prisma migration commands), `DEV_BRANCH_ID`, `JWT_SECRET`, `PORT`.
 
 ## Docs are partly stale — trust the code
 
