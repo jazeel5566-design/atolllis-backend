@@ -8,10 +8,10 @@
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "migrate:new": "prisma migrate dev --create-only",
     "migrate:deploy": "prisma migrate deploy",
+    "migrate:status": "prisma migrate status",
     "seed": "node prisma/seed.js",
-    "setup": "npm install && npx prisma migrate dev --name init && npm run seed",
     "postinstall": "prisma generate"
   },
   "dependencies": {

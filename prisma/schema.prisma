@@ -1,17 +1,16 @@
 // AtollLIS — Prisma schema
 //
-// Provider is set to PostgreSQL — this matches the live Neon database this app is deployed
-// against. If you ever need a fresh local SQLite copy for offline dev, change `provider` below
-// back to "sqlite", point DATABASE_URL at "file:./dev.db", and re-run `npx prisma migrate dev`.
-// The schema itself is written to be portable between the two — no SQLite-only features are used.
+// PostgreSQL on Neon. Changes go through migration files in prisma/migrations/ (0_baseline is the
+// schema as it stood when migrations began); never `db push` against production.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // same database without the pooler — migration commands need it
 }
 
 // ---------- Network hierarchy ----------

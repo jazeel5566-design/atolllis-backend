@@ -9,9 +9,10 @@ AtollLIS — a multi-tier Laboratory Information System (Maldives: Health Centre
 ## Owner rules
 
 - This system uses real hospital data and the real numeric test codes from the lab's own catalog. Never use placeholder codes or invented data.
-- `.env` points at the Neon **dev branch** (`DEV_BRANCH_ID`, `br-fragrant-bonus-az7a0v6w`), a copy of production. Production's URL is kept only in Render's settings, never in `.env`. Before any database work, confirm the branch: `select current_setting('neon.branch_id', true)` must equal `DEV_BRANCH_ID` (`assertDevBranch()` in `src/utils/db-guard.js` does this; tests and scripts must call it). Never run `npm run seed`, `npm run setup`, `npm run prisma:migrate`, or `prisma migrate reset`.
-- Run `npx prisma db push` only after the owner approves it, and stop immediately if Prisma warns about data loss.
-- Deploy order: make changes locally → `npm install` → `npx prisma db push` (schema changes only) → commit and push to GitHub → the owner deploys manually on Render.
+- `.env` points at the Neon **dev branch** (`DEV_BRANCH_ID`, `br-fragrant-bonus-az7a0v6w`), a copy of production. Production's URL is kept only in Render's settings, never in `.env`. Before any database work, confirm the branch: `select current_setting('neon.branch_id', true)` must equal `DEV_BRANCH_ID` (`assertDevBranch()` in `src/utils/db-guard.js` does this; tests and scripts must call it). Never run `npm run seed`, `prisma migrate reset`, or `prisma db push`.
+- Schema changes go through migration files in `prisma/migrations/` (see Commands). Stop and ask the owner if a generated migration drops or alters a column holding data.
+- Deploy order: edit `schema.prisma` → `npm run migrate:new -- --name <change>` → read the generated SQL → `npm run migrate:deploy` (applies it to dev) → commit and push to GitHub → the owner deploys manually on Render, and production migrations are applied only with the owner's approval.
+- **Production is not on migrations yet.** Its `_prisma_migrations` table still holds the orphan record `20260825120722_init` and does not know `0_baseline`. Until the owner approves marking `0_baseline` as applied there, nothing may run `prisma migrate deploy` against production (it would try to create every table).
 - Before building any feature, present a plan and wait for the owner's "yes". Flag ambiguous requirements instead of assuming.
 - After editing `public/index.html`, check syntax and that every button or `onclick` handler exists.
 - Roadmap: Settings Phase 1 (user and role management) and Phase 2 (HIS aliases, test panels, reflex rules) are done. Phase 5 (structured rejection reasons, auto-accept, critical-value escalation) is paused because the meaning of "auto-accept" is not decided yet. Ask the owner before building auto-accept.
@@ -21,7 +22,9 @@ AtollLIS — a multi-tier Laboratory Information System (Maldives: Health Centre
 ```bash
 npm run dev              # start API + frontend on http://localhost:4000 (same as npm start; no watcher — restart after edits)
 npx prisma generate      # regenerate client after editing prisma/schema.prisma (also runs on postinstall)
-npx prisma db push       # applies schema changes to the live DB — owner approval required (see Owner rules)
+npm run migrate:new -- --name <change>   # write a migration file for a schema.prisma change (does not apply it)
+npm run migrate:deploy   # apply pending migrations to the database in .env (the dev branch)
+npm run migrate:status   # compare prisma/migrations with the database
 ```
 
 There are no tests, no linter, and no build step. A locally running server reads and writes the dev branch; writes there are fine, but it holds a copy of real patient data, so it stays on this machine.
@@ -30,8 +33,8 @@ Env vars (`.env`, see `.env.example`): `DATABASE_URL`, `DIRECT_URL` (same branch
 
 ## Docs are partly stale — trust the code
 
-- **Database is PostgreSQL (Neon)**, per `prisma/schema.prisma`. README and `.env.example` still describe SQLite as the default. Some queries are Postgres-only (`mode: 'insensitive'` in `src/routes/his.js`).
-- **No `prisma/migrations/` directory exists.** The schema has been applied with `prisma db push`. `npm run setup` / `npm run prisma:migrate` run `prisma migrate dev --name init` and are forbidden by the Owner rules — switching to real migrations is a deliberate planned step (ARCHITECTURE.md build order #1), for the owner to initiate.
+- **Database is PostgreSQL (Neon)**, per `prisma/schema.prisma`. README still describes SQLite as the default. Some queries are Postgres-only (`mode: 'insensitive'` in `src/routes/his.js`).
+- **Migrations started on 2026-10-26** with `prisma/migrations/0_baseline`, generated from the schema as it stood (it matched the database exactly). Everything before that was applied with `prisma db push`.
 - `prisma/seed.js` holds demo data (mnemonic codes like `GLU`, `password123` accounts) that predates the real test catalog; it does not describe what is in the live database.
 - README mentions `requireRegional`, order-level `accept`/`reject`/`load-analyser` routes, and facility-id-in-login. None exist any more: authorization is capability-based, accept/reject/load-analyser are per specimen in `src/routes/specimens.js`, and login is `{ username, password, actingFacilityId? }`.
 - `ARCHITECTURE.md` (cluster-per-repo, Postgres RLS, subdomain tenant routing, cross-cluster referral API) and `ROADMAP.md` (three app branches, Billing/Aasandha, Inventory, QMS) are **target designs, not built**. Only `Facility.parentFacilityId` / `urlSlug` exist as groundwork, and nothing reads them.
