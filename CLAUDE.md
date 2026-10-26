@@ -8,7 +8,7 @@ AtollLIS — a multi-tier Laboratory Information System (Maldives: Health Centre
 
 ## Owner rules
 
-- This system uses real IGMH hospital data and real numeric IGMH test codes. Never use placeholder codes or invented data.
+- This system uses real hospital data and the real numeric test codes from the lab's own catalog. Never use placeholder codes or invented data.
 - `DATABASE_URL` in `.env` is the **LIVE production Neon database**. Never run `npm run seed`, `npm run setup`, `npm run prisma:migrate`, `prisma migrate dev`, or `prisma migrate reset`.
 - Run `npx prisma db push` only after the owner approves it, and stop immediately if Prisma warns about data loss.
 - Deploy order: make changes locally → `npm install` → `npx prisma db push` (schema changes only) → commit and push to GitHub → the owner deploys manually on Render.
@@ -32,7 +32,7 @@ Env vars (`.env`, see `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `PORT`.
 
 - **Database is PostgreSQL (Neon)**, per `prisma/schema.prisma`. README and `.env.example` still describe SQLite as the default. Some queries are Postgres-only (`mode: 'insensitive'` in `src/routes/his.js`).
 - **No `prisma/migrations/` directory exists.** The schema has been applied with `prisma db push`. `npm run setup` / `npm run prisma:migrate` run `prisma migrate dev --name init` and are forbidden by the Owner rules — switching to real migrations is a deliberate planned step (ARCHITECTURE.md build order #1), for the owner to initiate.
-- `prisma/seed.js` holds demo data (mnemonic codes like `GLU`, `password123` accounts) that predates the real IGMH catalog; it does not describe what is in the live database.
+- `prisma/seed.js` holds demo data (mnemonic codes like `GLU`, `password123` accounts) that predates the real test catalog; it does not describe what is in the live database.
 - README mentions `requireRegional`, order-level `accept`/`reject`/`load-analyser` routes, and facility-id-in-login. None exist any more: authorization is capability-based, accept/reject/load-analyser are per specimen in `src/routes/specimens.js`, and login is `{ username, password, actingFacilityId? }`.
 - `ARCHITECTURE.md` (cluster-per-repo, Postgres RLS, subdomain tenant routing, cross-cluster referral API) and `ROADMAP.md` (three app branches, Billing/Aasandha, Inventory, QMS) are **target designs, not built**. Only `Facility.parentFacilityId` / `urlSlug` exist as groundwork, and nothing reads them.
 

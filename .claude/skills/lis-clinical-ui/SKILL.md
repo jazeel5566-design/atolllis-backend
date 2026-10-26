@@ -13,7 +13,7 @@ AtollLIS is used by phlebotomists, technologists and admins across Regional Hosp
 - STAT requests stand out in every list (badge + left border), and sort above routine work by default.
 - Destructive or irreversible actions (reject sample, amend a validated result, cancel a test) need a confirmation that names exactly what will change, plus a reason field.
 - Show who did what and when (collected, received, resulted, validated by) on result screens and reports.
-- Never show "Lorem ipsum" or fake hospital codes; use real IGMH test codes, units and reference ranges from the catalog.
+- Never show "Lorem ipsum" or fake hospital codes; use real test codes, units and reference ranges from the catalog.
 
 ## Speed for technologists
 - Result entry must work entirely by keyboard: Tab/Enter moves to the next result field, Esc cancels, shortcuts for Save and Validate shown on the buttons.

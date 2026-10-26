@@ -80,7 +80,7 @@ Goals: read-only, fast, results grouped by date and department, critical results
 - Works acceptably on slow connections: lightweight pages, no blocking spinners for background tasks.
 
 ## 9. Language and terminology
-- Use the words your lab staff actually use (the IGMH test names, the lab's department names), not developer terms ("record", "entity", "null").
+- Use the words your lab staff actually use (the catalog's test names, the lab's department names), not developer terms ("record", "entity", "null").
 - Be consistent: one term for one concept across screens, reports and messages.
 - Write buttons as the action ("Receive sample", "Validate 12 results", "Reject sample"), never "Submit" or "OK".
 - If Dhivehi or bilingual labels are needed, plan layouts with room for longer text and right-to-left support.

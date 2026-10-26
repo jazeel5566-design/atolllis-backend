@@ -3881,7 +3881,7 @@ function testModalHtml(isEdit){
     <div class="modal">
       <div class="modal-head"><h2>${isEdit? 'Edit Test':'New Test'}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="grid grid-2">
-        <div class="field"><label>Test Code</label><input id="f_code" value="${escapeHtml(t.code)}" ${isEdit?'disabled':''} placeholder="IGMH test code"></div>
+        <div class="field"><label>Test Code</label><input id="f_code" value="${escapeHtml(t.code)}" ${isEdit?'disabled':''} placeholder="Test code"></div>
         <div class="field"><label>Test Name</label><input id="f_name" value="${escapeHtml(t.name)}" placeholder="e.g. LDL Cholesterol"></div>
       </div>
       <div class="grid grid-2">

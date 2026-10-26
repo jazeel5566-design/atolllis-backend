@@ -1,12 +1,12 @@
 // One-off script — renumbers every test's code from the mnemonic strings (GLU, SERUMGLOBULI, ...)
-// to real numeric codes. For tests imported from the IGMH file, this uses the ACTUAL hospital
+// to real numeric codes. For tests imported from the hospital test file, this uses the ACTUAL hospital
 // service code already stored as that test's HIS alias — so the catalog code and the real HIS
 // code become the same number, which is exactly how a real hospital system works. The now-
 // redundant alias (mapping a code to itself) is removed afterward.
 //
 // For tests that never had an alias (your original 6 demo tests: GLU, HGB, CREA, TSH, HBA1C,
 // CA125), a fresh number is assigned starting at 9001 — a range unlikely to collide with any real
-// IGMH code, so if you ever add more real codes later there's no ambiguity.
+// hospital code, so if you ever add more real codes later there's no ambiguity.
 //
 // This is a genuine multi-table update — every place a test's code is referenced gets moved to
 // the new code, in a safe order (new row created and populated first, then every referencing row
