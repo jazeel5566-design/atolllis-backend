@@ -439,8 +439,14 @@ const api = {
 function fac(id){ return facilitiesCache.find(f=>f.id===id) || {id, name:id||'Unknown facility', tier:'health_centre'}; }
 function test(code){ return catalogCache.find(t=>t.code===code); }
 function isRegional(){ return session.user && session.user.tier==='regional'; }
+// A birth date is a calendar date: "2026-06-10" is that local day, not UTC midnight. Keep in step
+// with parseDob() in src/utils/domain.js.
+function parseDob(dob){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob||'').trim());
+  return m ? new Date(Number(m[1]), Number(m[2])-1, Number(m[3])) : new Date(dob);
+}
 function calcAge(dob){
-  const d = new Date(dob), n = new Date();
+  const d = parseDob(dob), n = new Date();
   let a = n.getFullYear()-d.getFullYear();
   const m = n.getMonth()-d.getMonth();
   if(m<0 || (m===0 && n.getDate()<d.getDate())) a--;
@@ -448,7 +454,7 @@ function calcAge(dob){
 }
 // Age in completed days, months and years on a date. Keep in step with ageParts() in src/utils/domain.js.
 function ageParts(dob, at){
-  const d = new Date(dob);
+  const d = parseDob(dob);
   let n = at ? new Date(at) : new Date();
   if(Number.isNaN(n.getTime())) n = new Date();
   if(!dob || Number.isNaN(d.getTime())) return null;
@@ -489,17 +495,17 @@ function evalResult(t, patient, value, at){
 }
 // One date format on every computer (the browser's own varies): 12 Oct 2026, 22:10.
 function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); if(Number.isNaN(d.getTime())) return '—'; return d.toLocaleString('en-GB',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}); }
-function fmtDob(dob){ if(!dob) return '—'; const d=new Date(dob); if(Number.isNaN(d.getTime())) return String(dob); return d.toLocaleDateString('en-GB',{year:'numeric',month:'short',day:'numeric'}); }
+function fmtDob(dob){ if(!dob) return '—'; const d=parseDob(dob); if(Number.isNaN(d.getTime())) return String(dob); return d.toLocaleDateString('en-GB',{year:'numeric',month:'short',day:'numeric'}); }
 // Age for display: years from 2 upward; months, then days, below that. Keep in step with
 // formatAge() in src/utils/domain.js.
 function fmtAge(dob){
-  const d = new Date(dob), n = new Date();
+  const d = parseDob(dob), n = new Date();
   if(!dob || Number.isNaN(d.getTime())) return '?';
   let months = (n.getFullYear()-d.getFullYear())*12 + (n.getMonth()-d.getMonth());
   if(n.getDate()<d.getDate()) months--;
   if(months>=24) return Math.floor(months/12)+'y';
   if(months>=1) return months+'m';
-  return Math.max(0, Math.floor((n-d)/86400000))+'d';
+  return ageParts(dob, n).D+'d'; // calendar days, so the count doesn't depend on the time of day
 }
 const SEX_LABELS = {M:'Male', F:'Female'};
 // "2h 10m" since a moment in time.

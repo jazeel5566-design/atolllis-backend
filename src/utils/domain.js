@@ -21,8 +21,16 @@ function referralTarget(test, facility, allFacilities) {
   return null;
 }
 
+// A birth date is a calendar date, not a moment: "2026-06-10" is read as that local day. new Date()
+// alone would read it as UTC midnight, which is the previous day anywhere west of UTC.
+// Keep in step with parseDob() in public/index.html.
+function parseDob(dob) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || '').trim());
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(dob);
+}
+
 function calcAge(dob) {
-  const d = new Date(dob);
+  const d = parseDob(dob);
   const n = new Date();
   let a = n.getFullYear() - d.getFullYear();
   const m = n.getMonth() - d.getMonth();
@@ -33,19 +41,19 @@ function calcAge(dob) {
 // Age for display: whole years from 2 upward; months, then days, below that — "0y" tells a
 // clinician nothing about a newborn. Keep in step with fmtAge() in public/index.html.
 function formatAge(dob, now = new Date()) {
-  const d = new Date(dob);
+  const d = parseDob(dob);
   if (Number.isNaN(d.getTime())) return '?';
   let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
   if (now.getDate() < d.getDate()) months -= 1;
   if (months >= 24) return `${Math.floor(months / 12)}y`;
   if (months >= 1) return `${months}m`;
-  return `${Math.max(0, Math.floor((now - d) / 86400000))}d`;
+  return `${ageParts(dob, now).D}d`; // calendar days, so the count doesn't depend on the time of day
 }
 
 // Age in completed days, months and years on a given date — how reference-range age bands are
 // counted. Keep in step with ageParts() in public/index.html.
 function ageParts(dob, at) {
-  const d = new Date(dob);
+  const d = parseDob(dob);
   let n = at ? new Date(at) : new Date();
   if (Number.isNaN(n.getTime())) n = new Date();
   if (Number.isNaN(d.getTime())) return null;
