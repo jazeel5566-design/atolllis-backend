@@ -9,6 +9,7 @@
     "dev": "node src/server.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test:page": "node test/page/smoke.js",
     "prisma:generate": "prisma generate",
     "migrate:new": "prisma migrate dev --create-only",
     "migrate:deploy": "prisma migrate deploy && prisma generate",

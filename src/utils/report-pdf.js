@@ -4,7 +4,7 @@ const { formatAge } = require('./domain');
 // Draws the laboratory report as a PDF: one sheet per performing lab (see routes/reports.js), each
 // starting on a new page under that lab's own header.
 
-// Keep in step with STATUS_META in public/index.html.
+// Keep in step with STATUS_META in public/js/core.js.
 const STATUS_LABELS = {
   ordered: 'Awaiting Collection',
   collected: 'Sample Collected — Awaiting Acceptance',

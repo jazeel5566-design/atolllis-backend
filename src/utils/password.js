@@ -1,5 +1,5 @@
 // Account-security rules, as set by the owner (2026-10-26). Keep the numbers in step with the
-// login screen and user forms in public/index.html.
+// login screen and user forms in public/js/login.js and public/js/settings.js.
 const PASSWORD_MIN_LENGTH = 10;
 const MAX_FAILED_LOGINS = 5;  // wrong passwords in a row before the account locks
 const LOCKOUT_MINUTES = 15;

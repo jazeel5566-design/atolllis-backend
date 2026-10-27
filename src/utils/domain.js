@@ -23,7 +23,7 @@ function referralTarget(test, facility, allFacilities) {
 
 // A birth date is a calendar date, not a moment: "2026-06-10" is read as that local day. new Date()
 // alone would read it as UTC midnight, which is the previous day anywhere west of UTC.
-// Keep in step with parseDob() in public/index.html.
+// Keep in step with parseDob() in public/js/core.js.
 function parseDob(dob) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || '').trim());
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(dob);
@@ -39,7 +39,7 @@ function calcAge(dob) {
 }
 
 // Age for display: whole years from 2 upward; months, then days, below that — "0y" tells a
-// clinician nothing about a newborn. Keep in step with fmtAge() in public/index.html.
+// clinician nothing about a newborn. Keep in step with fmtAge() in public/js/core.js.
 function formatAge(dob, now = new Date()) {
   const d = parseDob(dob);
   if (Number.isNaN(d.getTime())) return '?';
@@ -51,7 +51,7 @@ function formatAge(dob, now = new Date()) {
 }
 
 // Age in completed days, months and years on a given date — how reference-range age bands are
-// counted. Keep in step with ageParts() in public/index.html.
+// counted. Keep in step with ageParts() in public/js/core.js.
 function ageParts(dob, at) {
   const d = parseDob(dob);
   let n = at ? new Date(at) : new Date();
@@ -90,7 +90,7 @@ function numericValue(value) {
   return parseFloat(String(value ?? '').trim().replace(/^[<>\u2264\u2265]=?\s*/, ''));
 }
 
-// Keep in step with the copy of this function in public/index.html.
+// Keep in step with the copy of this function in public/js/core.js.
 function evalResult(test, patient, value, at) {
   const range = matchRange(test, patient, at);
   const rangeText = range ? `${range.low} \u2013 ${range.high} ${test.units || ''}`.trim() : 'Not established for age/sex';
