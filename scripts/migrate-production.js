@@ -1,11 +1,12 @@
 // Brings the PRODUCTION database onto Prisma migrations and applies any pending ones. The owner
-// runs this, never Claude. The production address is passed for this one run only:
+// runs this, never Claude:
 //
-//   PROD_DATABASE_URL='postgresql://…(production, connection pooling OFF)…' node scripts/migrate-production.js
+//   node scripts/migrate-production.js
 //
-// It refuses the dev branch, shows what it is connected to, checks read-only that production still
-// matches 0_baseline, and changes nothing until "yes" is typed. Safe to run again: steps already
-// done are skipped.
+// It asks for the production address (Neon → Connect → production branch, connection pooling off),
+// keeps it only for this run, and shows just the host it received. It refuses the dev branch,
+// shows what it is connected to, checks read-only that production still matches 0_baseline, and
+// changes nothing until "yes" is typed. Safe to run again: steps already done are skipped.
 require('dotenv').config();
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -17,8 +18,14 @@ const { PrismaClient } = require('@prisma/client');
 const BASELINE_COMMIT = '73ab919'; // the commit that created 0_baseline from schema.prisma
 const ORPHAN = '20260825120722_init';
 
-const url = process.env.PROD_DATABASE_URL;
+let url = process.env.PROD_DATABASE_URL;
 const ask = q => new Promise(r => { const rl = readline.createInterface({ input: process.stdin, output: process.stdout }); rl.question(q, a => { rl.close(); r(a.trim()); }); });
+// Like ask(), but what is typed or pasted is not shown, so the password never appears on screen.
+const askHidden = q => new Promise(r => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  rl.question(q, a => { rl.close(); process.stdout.write('\n'); r(a.trim()); });
+  rl._writeToOutput = s => { if (s.startsWith(q)) process.stdout.write(q); };
+});
 const stop = msg => { console.error('\nSTOPPED: ' + msg); process.exit(1); };
 // Prisma commands against production only: both addresses point there for the child process.
 const prismaCli = args => execFileSync('npx', ['prisma', ...args], {
@@ -26,8 +33,16 @@ const prismaCli = args => execFileSync('npx', ['prisma', ...args], {
 });
 
 (async () => {
-  if (!url) stop('set PROD_DATABASE_URL to the production address (Neon: Connect → production branch → connection pooling off).');
-  if (new URL(url).hostname.includes('-pooler')) stop('that is the pooled address; switch connection pooling off in Neon and copy the address again.');
+  if (!url) {
+    console.log('Paste the PRODUCTION address from Neon (Connect → production branch → connection pooling off).');
+    console.log('It will not show on screen while you paste. Press Enter after pasting.');
+    url = await askHidden('Address: ');
+  }
+  let host;
+  try { host = new URL(url).hostname; } catch (e) { stop('that does not look like a database address — copy it again from Neon (it starts with postgresql://).'); }
+  console.log(`Received an address for ${host}`);
+  if (host.includes('-pooler')) stop('that is the pooled address; switch connection pooling off in Neon and copy the address again.');
+  console.log('Connecting…');
 
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   try {
