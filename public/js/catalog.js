@@ -713,8 +713,43 @@ async function viewAdmin(){
       <table><thead><tr><th>Lab ID</th><th>Name</th><th>Parent Atoll Hospital</th><th></th></tr></thead>
       <tbody>${hcRows || `<tr><td colspan="4" class="empty">No Health Centre labs created yet.</td></tr>`}</tbody></table>
     </div>
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <h2 style="padding:16px 20px 0;">Dhivehi on printed reports</h2>
+      <p class="muted" style="font-size:12.5px;padding:0 20px;margin-top:-6px;">Each lab's name, report title and a note at the foot of its reports, in Thaana. A line left empty is not printed.</p>
+      <table><thead><tr><th>Lab</th><th>Dhivehi name</th><th>Title and note</th><th></th></tr></thead>
+      <tbody>${facilitiesCache.map(f=>`<tr>
+        <td>${escapeHtml(f.name)}</td>
+        <td class="thaana" dir="rtl" lang="dv">${escapeHtml(f.nameDhivehi||'')}${f.nameDhivehi?'':'<span class="muted" dir="ltr">—</span>'}</td>
+        <td class="muted" style="font-size:12px;">${[f.reportTitleDhivehi?'Title set':'', f.reportNoteDhivehi?'Note set':''].filter(Boolean).join(' · ')||'—'}</td>
+        <td><button class="btn btn-sm btn-outline" onclick="openDhivehiModal('${f.id}')">Edit</button></td></tr>`).join('')}</tbody></table>
+    </div>
     <p class="muted" style="font-size:11.5px;">To view a facility's data, grant your own account access to it under Settings → Users → Edit → Facility Access.</p>
   `;
+}
+function openDhivehiModal(facilityId){
+  const f = facilitiesCache.find(x=>x.id===facilityId);
+  if(!f) return;
+  const rtl = 'dir="rtl" lang="dv" class="thaana"';
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head"><h2>Dhivehi for ${escapeHtml(f.name)}</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p class="muted" style="font-size:12.5px;margin-top:-6px;">Type in Thaana. Each line is optional; an empty one is left off the report.</p>
+      <div class="field"><label for="dv_name">Lab name</label><input id="dv_name" ${rtl} value="${escapeHtml(f.nameDhivehi||'')}"></div>
+      <div class="field"><label for="dv_title">Report title</label><input id="dv_title" ${rtl} value="${escapeHtml(f.reportTitleDhivehi||'')}"></div>
+      <div class="field"><label for="dv_note">Note at the foot of each report</label><textarea id="dv_note" ${rtl} rows="3">${escapeHtml(f.reportNoteDhivehi||'')}</textarea></div>
+      <div class="actions-row"><button class="btn" onclick="saveDhivehi('${f.id}')">Save</button><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>
+    </div>
+  </div>`;
+}
+async function saveDhivehi(facilityId){
+  const val = id => (document.getElementById(id).value||'').trim();
+  await withErrorToast(async ()=>{
+    await api.setFacilityDhivehi(facilityId, { nameDhivehi: val('dv_name'), reportTitleDhivehi: val('dv_title'), reportNoteDhivehi: val('dv_note') });
+    facilitiesCache = await api.facilities();
+    closeModal(); await render();
+    showToast('Dhivehi text saved.');
+  });
 }
 function openLabModal(){
   const atolls = facilitiesCache.filter(f=>f.tier==='atoll');

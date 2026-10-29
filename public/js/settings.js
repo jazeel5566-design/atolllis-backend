@@ -144,6 +144,8 @@ async function viewAuditLog(){
     result_amended:'Result Amended', result_withdrawn:'Result Withdrawn', amendment_notified:'Amendment Notified', amendment_attempt_failed:'Amendment Notification Attempt Failed',
     user_created:'User Created', user_updated:'User Updated', user_removed:'User Removed',
     facility_access_granted:'Facility Access Granted', facility_access_revoked:'Facility Access Revoked',
+    report_handover:'Report Handed Out', report_reprint:'Report Printed Again', patient_folder_viewed:'Patient Folder Opened',
+    patient_dhivehi_name:'Patient Dhivehi Name Set', facility_dhivehi:'Lab Dhivehi Text Set', patient_registered:'Patient Registered',
   };
   const rows = entries.map(e=>`<tr>
     <td class="muted" style="font-size:12px;white-space:nowrap;">${fmtDate(e.createdAt)}</td>
@@ -327,8 +329,8 @@ async function openUserModal(userId, facilityId){
   const existing = userId ? (await api.users(facilityId)).find(u=>u.id===userId) : null;
   const isAdmin = session.user.role==='admin';
   const grantable = isAdmin
-    ? ['phlebotomist','technologist','pathologist','lab_manager','admin']
-    : ['phlebotomist','technologist','pathologist','lab_manager'];
+    ? ['reception_clerk','clinician','phlebotomist','technologist','pathologist','lab_manager','admin']
+    : ['reception_clerk','clinician','phlebotomist','technologist','pathologist','lab_manager'];
   const allFacilities = isAdmin ? await api.facilities() : facilitiesCache;
   const accessSection = existing ? `
     <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">

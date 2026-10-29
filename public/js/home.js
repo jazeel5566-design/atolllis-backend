@@ -18,7 +18,7 @@ async function viewProcessFlow(){
     {title:'Sample Acceptance', desc:'Read the barcode, then Accept or Reject with a reason — local tests only.', badge:awaitingAccept, action:"goTo('acceptance')"},
     {title:'Analyser Processing', desc:'Load locally-collected samples to the analyser; results interface back automatically.', badge:analyserCount, action:"goToProcessing('analyser')"},
     {title:'Result Validation', desc:'Validate & certify interfaced or manually entered results.', badge:validationCount, action:"goToProcessing('analyser','interfaced')"},
-    {title:'Report Issue', desc:'Completed results become a standard laboratory report.', badge:reportsReady, action:"goToReports('samples')"},
+    {title:'Report Issue', desc:'Completed results become a standard laboratory report.', badge:reportsReady, action:"goToReports('todo')"},
   ];
   const track = steps.map((s,i)=>{
     const step = `<div class="flow-step" onclick="${s.action}">
@@ -36,8 +36,33 @@ async function viewProcessFlow(){
   `;
 }
 
-/* ============================= DASHBOARD ============================= */
+/* ============================= MY WORK ============================= */
+// The home screen: what this person has to do next. Report cards for anyone with the Reports
+// section; the lab's own snapshot below them for lab staff.
 async function viewDashboard(){
+  const f = fac(session.user.facilityId);
+  const [cards, lab] = await Promise.all([myWorkCards(), isLabStaff() ? viewLabSnapshot() : '']);
+  return `
+    <div class="pagehead"><h1>My work</h1><p>${escapeHtml(session.user.name)} · ${escapeHtml(f.name)}</p></div>
+    ${cards}${lab}
+    ${!cards && !lab ? `<div class="card empty">Nothing here for your role yet.</div>` : ''}`;
+}
+async function myWorkCards(){
+  if(!hasCapability('view_reports')) return '';
+  let desk;
+  try{ desk = await api.reportDesk(); }catch(e){ return ''; }
+  const lists = deskLists(desk.items);
+  let cards;
+  if(hasCapability('dispatch_reports')){
+    cards = [['Reports to hand out', lists.todo.length, 'todo'], ['Handed out today', lists.done.length, 'done'], ['Still in the lab', lists.lab.length, 'lab']];
+  }else{
+    const today = lists.finished.filter(i=>isToday(i.lastCertifiedAt));
+    cards = [['Results finished today', today.length, 'finished'], ['With an abnormal result today', today.filter(i=>i.abnormal).length, 'finished'], [`Amended in the last ${desk.days} days`, lists.finished.filter(i=>i.amended).length, 'finished']];
+  }
+  return `<div class="grid grid-3">${cards.map(([label, n, tab])=>`<div class="card kpi work-card" onclick="goToReports('${tab}')"><div class="n">${n}</div><div class="l">${escapeHtml(label)}</div><span class="work-go">Open →</span></div>`).join('')}</div>`;
+}
+
+async function viewLabSnapshot(){
   const fid = session.user.facilityId, f = fac(fid);
   const [pendingCollection, referralPending, pendingAcceptance, incoming, activeLocal, completedToday] = await Promise.all([
     api.orders('pending_collection'), api.orders('referral_pending'), api.orders('pending_acceptance'),
@@ -56,7 +81,7 @@ async function viewDashboard(){
   const anyOrders = awaitingCollect || awaitingAccept || localActive || completedTodayCount || incoming.length;
 
   return `
-    <div class="pagehead"><h1>Dashboard</h1><p>Live snapshot for ${escapeHtml(f.name)}.</p></div>
+    <h2 style="margin-top:6px;">Lab snapshot</h2>
     ${critical.items.length? `<div class="card" style="border:1.5px solid var(--crimson);background:var(--crimson-bg);">
       <h2 style="color:var(--crimson);">⚠ ${critical.items.length} critical value${critical.items.length===1?'':'s'} awaiting notification</h2>
       <p style="margin-top:-6px;font-size:13px;">${criticalOverdue? `<b>${criticalOverdue} overdue</b> — waiting more than ${critical.overdueMinutes} minutes.${hasCapability('certify')?' Senior staff action needed.':''}` : `Notify the clinician within ${critical.overdueMinutes} minutes of the result.`}</p>

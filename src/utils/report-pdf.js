@@ -1,5 +1,7 @@
+const path = require('path');
 const PDFDocument = require('pdfkit');
 const { formatAge } = require('./domain');
+const { visualOrder } = require('./dhivehi');
 
 // Draws the laboratory report as a PDF: one sheet per performing lab (see routes/reports.js), each
 // starting on a new page under that lab's own header.
@@ -31,6 +33,31 @@ const COLS = [
 ];
 const INK = '#1a2433', MUTE = '#6b7785', RULE = '#cfd6de', CRIMSON = '#b3261e', HEAD_BG = '#eef2f6';
 const REG = 'Helvetica', BOLD = 'Helvetica-Bold', ITALIC = 'Helvetica-Oblique', MONO = 'Courier';
+// Dhivehi is drawn in Noto Sans Thaana (SIL Open Font License, src/fonts/OFL.txt), embedded in
+// the PDF so it prints the same on any computer.
+const THAANA = 'Thaana', THAANA_BOLD = 'Thaana-Bold';
+const FONT_DIR = path.join(__dirname, '..', 'fonts');
+
+// A Dhivehi line or paragraph, right-aligned and reading right to left. Words are wrapped in their
+// own (logical) order and each line is then put in drawing order, so a long note wraps correctly.
+// Returns the y below it.
+function drawDhivehi(doc, text, y, { size = 10, bold = false, color = INK, x = PAGE.margin, width = CONTENT_W } = {}) {
+  if (!text) return y;
+  doc.font(bold ? THAANA_BOLD : THAANA).fontSize(size).fillColor(color);
+  const lines = [];
+  let line = '';
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && doc.widthOfString(visualOrder(next)) > width) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  const lineH = doc.currentLineHeight(true) + 1;
+  for (const l of lines) {
+    doc.text(visualOrder(l), x, y, { width, align: 'right', lineBreak: false });
+    y += lineH;
+  }
+  return y;
+}
 
 // The built-in PDF fonts only cover Windows-1252. Characters outside it that are likely in units
 // and ranges are written in an equivalent plain form; anything else becomes "?" rather than
@@ -146,13 +173,20 @@ function drawTableHeader(doc, y) {
 function drawLetterhead(doc, report, sheet, continued) {
   const { order } = report;
   const top = PAGE.margin;
+  const preliminary = report.state === 'preliminary';
+  const title = preliminary ? 'PRELIMINARY REPORT — some tests are still in the lab; the final report follows'
+    : sheet.amended ? 'AMENDED REPORT — replaces any earlier copy' : 'Standard Laboratory Report';
+  const marked = preliminary || sheet.amended;
   doc.font(BOLD).fontSize(16).fillColor(INK).text(pdfText(sheet.facility.name), PAGE.margin, top, { width: CONTENT_W - 170 });
   const afterName = doc.y;
-  doc.font(sheet.amended ? BOLD : REG).fontSize(sheet.amended ? 10 : 8.5).fillColor(sheet.amended ? INK : MUTE).text(`${sheet.amended ? 'AMENDED REPORT — replaces any earlier copy' : 'Standard Laboratory Report'}${continued ? ' (continued)' : ''}`, PAGE.margin, afterName + 1);
+  doc.font(marked ? BOLD : REG).fontSize(marked ? 10 : 8.5).fillColor(marked ? INK : MUTE).text(`${title}${continued ? ' (continued)' : ''}`, PAGE.margin, afterName + 1, { width: CONTENT_W - 170 });
   const leftBottom = doc.y;
   doc.font(MONO).fontSize(10).fillColor(INK).text(pdfText(order.memoNumber || order.id), PAGE.margin + CONTENT_W - 170, top + 2, { width: 170, align: 'right' });
   doc.font(REG).fontSize(8.5).fillColor(MUTE).text(fmtDate(order.createdAt), PAGE.margin + CONTENT_W - 170, doc.y + 1, { width: 170, align: 'right' });
-  const y = Math.max(leftBottom, doc.y) + 8;
+  let y = Math.max(leftBottom, doc.y) + 4;
+  y = drawDhivehi(doc, sheet.facility.nameDhivehi, y, { size: 13, bold: true });
+  y = drawDhivehi(doc, sheet.facility.reportTitleDhivehi, y, { size: 10, color: MUTE });
+  y += 4;
   doc.moveTo(PAGE.margin, y).lineTo(PAGE.margin + CONTENT_W, y).lineWidth(1.2).strokeColor(INK).stroke();
   return y + 10;
 }
@@ -176,6 +210,7 @@ function drawMeta(doc, report, sheet, y) {
     doc.font(label === 'Patient' ? BOLD : REG).fillColor(INK).text(pdfText(value));
     return doc.y;
   };
+  y = drawDhivehi(doc, patient.nameDhivehi, y, { size: 11, bold: true });
   for (let i = 0; i < pairs.length; i += 2) {
     const a = drawPair(pairs[i], PAGE.margin, y, colW - 10);
     const b = pairs[i + 1] ? drawPair(pairs[i + 1], PAGE.margin + colW, y, colW) : y;
@@ -228,6 +263,9 @@ function drawSheet(doc, report, sheet, pageInfo) {
   }
   // So a reader can tell the sheet is complete and no page is missing.
   if (y + 24 > BOTTOM) y = continuedPage();
+  const note = sheet.facility.reportNoteDhivehi;
+  if (note && y + 60 > BOTTOM) y = continuedPage();
+  if (note) y = drawDhivehi(doc, note, y + 10, { size: 9.5 });
   doc.font(REG).fontSize(8.5).fillColor(MUTE).text('— End of report —', PAGE.margin, y + 10, { width: CONTENT_W, align: 'center' });
   return pageInSheet;
 }
@@ -236,6 +274,8 @@ function drawSheet(doc, report, sheet, pageInfo) {
 function renderReportPdf(report) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin, autoFirstPage: false, bufferPages: true, info: { Title: `Laboratory Report ${pdfText(report.order.memoNumber || report.order.id)}` } });
+    doc.registerFont(THAANA, path.join(FONT_DIR, 'NotoSansThaana-Regular.ttf'));
+    doc.registerFont(THAANA_BOLD, path.join(FONT_DIR, 'NotoSansThaana-Bold.ttf'));
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

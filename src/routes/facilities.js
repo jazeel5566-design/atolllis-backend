@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const prisma = require('../db');
 const { requireAuth, requireCapability } = require('../middleware/auth');
+const { cleanDhivehi } = require('../utils/dhivehi');
+const { logAudit } = require('../utils/audit');
 
 router.use(requireAuth);
 
@@ -24,6 +26,22 @@ router.post('/', requireCapability('manage_labs'), async (req, res) => {
     },
   });
   res.status(201).json(facility);
+});
+
+// The Dhivehi lines printed on this lab's reports: its name, the report title, and a note at the
+// foot of each sheet. Any of them may be left empty, and is then left off the print.
+router.put('/:id/dhivehi', requireCapability('manage_labs'), async (req, res) => {
+  const body = req.body || {};
+  const data = {
+    nameDhivehi: cleanDhivehi(body.nameDhivehi, 'The Dhivehi name', 120),
+    reportTitleDhivehi: cleanDhivehi(body.reportTitleDhivehi, 'The Dhivehi report title', 120),
+    reportNoteDhivehi: cleanDhivehi(body.reportNoteDhivehi, 'The Dhivehi note', 400),
+  };
+  const facility = await prisma.facility.findUnique({ where: { id: req.params.id } });
+  if (!facility) return res.status(404).json({ error: 'Not found' });
+  const updated = await prisma.facility.update({ where: { id: facility.id }, data });
+  await logAudit(req.user, { action: 'facility_dhivehi', entityType: 'Facility', entityId: facility.id, details: `Updated the Dhivehi report text of ${facility.name}` });
+  res.json(updated);
 });
 
 // Removing an Atoll Hospital re-parents its Health Centres to Regional rather than blocking.

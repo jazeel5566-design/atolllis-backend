@@ -3,22 +3,30 @@
 // Roles are NOT a strict ladder where each includes the one below — they're explicit capability
 // sets, because real lab roles don't nest cleanly (e.g. a Lab Manager isn't just "senior Pathologist").
 //
-//   phlebotomist  — draws and collects samples only
+//   phlebotomist  — draws and collects samples, and hands out final reports
+//   reception_clerk — main reception: hands out final reports (no lab work, no unfinished results)
+//   clinician     — reads every result for patients with lab work at their facility, including
+//                    preliminary reports and the patient folder; hands nothing out
 //   technologist  — collection, acceptance, and running results through the analyser
 //   pathologist   — everything a technologist does, plus validating & certifying results
 //   lab_manager   — everything a pathologist does, plus managing staff at their own facility
 //   admin         — everything a lab_manager does, plus test catalog / categories / lab network
 //                    (in practice, only ever granted to Regional Hospital staff)
+const REPORTS_ALL = ['view_reports', 'dispatch_reports', 'view_patient_records'];
 const ROLE_CAPABILITIES = {
-  phlebotomist: ['collect'],
-  technologist: ['collect', 'accept', 'process'],
-  pathologist: ['collect', 'accept', 'process', 'certify'],
-  lab_manager: ['collect', 'accept', 'process', 'certify', 'manage_users'],
-  admin: ['collect', 'accept', 'process', 'certify', 'manage_users', 'manage_catalog', 'manage_labs'],
+  phlebotomist: ['collect', 'view_reports', 'dispatch_reports'],
+  reception_clerk: ['view_reports', 'dispatch_reports'],
+  clinician: ['view_reports', 'view_patient_records'],
+  technologist: ['collect', 'accept', 'process', ...REPORTS_ALL],
+  pathologist: ['collect', 'accept', 'process', 'certify', ...REPORTS_ALL],
+  lab_manager: ['collect', 'accept', 'process', 'certify', 'manage_users', ...REPORTS_ALL],
+  admin: ['collect', 'accept', 'process', 'certify', 'manage_users', 'manage_catalog', 'manage_labs', ...REPORTS_ALL],
 };
 
 const ROLE_LABELS = {
   phlebotomist: 'Phlebotomist',
+  reception_clerk: 'Reception Clerk',
+  clinician: 'Clinician',
   technologist: 'Technologist',
   pathologist: 'Pathologist',
   lab_manager: 'Lab Manager',
@@ -34,6 +42,9 @@ const CAPABILITY_LABELS = {
   manage_catalog: 'Manage Test Catalog & Categories',
   manage_labs: 'Manage Lab Network & Facility Networks',
   view_audit: 'View Audit Log',
+  view_reports: 'View Reports',
+  dispatch_reports: 'Hand Out Reports',
+  view_patient_records: 'Patient Records & Preliminary Results',
 };
 
 const ALL_ROLES = Object.keys(ROLE_LABELS);

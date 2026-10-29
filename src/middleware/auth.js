@@ -44,15 +44,20 @@ const requireAuthForPasswordChange = authenticate({ allowPasswordChange: true })
 
 // Role-based access control. Which capabilities a role has is stored in the RoleCapability table
 // (editable by an Admin under Settings), not fixed in code — this middleware is just the gate.
+async function userHasCapability(user, capability) {
+  if (!user) return false;
+  const match = await prisma.roleCapability.findUnique({ where: { role_capability: { role: user.role, capability } } });
+  return !!match;
+}
+
 function requireCapability(capability) {
   return async function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
     try {
-      const match = await prisma.roleCapability.findUnique({ where: { role_capability: { role: req.user.role, capability } } });
-      if (!match) return res.status(403).json({ error: `Your role does not have permission to do this (requires: ${capability})` });
+      if (!(await userHasCapability(req.user, capability))) return res.status(403).json({ error: `Your role does not have permission to do this (requires: ${capability})` });
       next();
     } catch (e) { next(e); }
   };
 }
 
-module.exports = { requireAuth, requireAuthForPasswordChange, requireCapability };
+module.exports = { requireAuth, requireAuthForPasswordChange, requireCapability, userHasCapability };

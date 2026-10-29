@@ -55,7 +55,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const screens = [
       ['dashboard'], ['processflow'], ['collection'], ['acceptance'],
       ...['analyser', 'incoming', 'critical', 'interface'].map(t => ['processing', `processingTab='${t}'`]),
-      ...['samples', 'history'].map(t => ['reports', `reportsTab='${t}'`]),
+      ...['todo', 'done', 'lab', 'all'].map(t => ['reports', `deskTab='${t}';deskQuery=''`]),
+      ['reports', `deskQuery='ZZ-NO-MATCH'`],
+      ['patients', `folderPatientId=null;deskQuery=''`],
     ];
     const settingsTabs = (await evaluate(`SETTINGS_GROUPS.flatMap(g=>g.tabs.map(t=>t.id))`)).result.value;
     settingsTabs.forEach(t => screens.push(['settings', `settingsTab='${t}'`]));

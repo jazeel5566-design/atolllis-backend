@@ -31,6 +31,12 @@ model Facility {
   childFacilities  Facility[] @relation("FacilityTree")
   urlSlug          String?    @unique // reserved for future subdomain-based tenant routing
 
+  // Dhivehi (Thaana) text for printed documents. Each is optional: a line with no Dhivehi text is
+  // left off the print rather than printed empty. Screens stay English.
+  nameDhivehi        String?
+  reportTitleDhivehi String?
+  reportNoteDhivehi  String? // printed at the foot of every report sheet from this lab
+
   users              User[]
   patients           Patient[]
   ordersAsOrigin     Order[]     @relation("OrderOrigin")
@@ -86,7 +92,7 @@ model User {
   name           String
   username       String   @unique // one account per person, now — not per facility
   passwordHash   String
-  role           String   @default("technologist") // 'phlebotomist' | 'technologist' | 'pathologist' | 'lab_manager' | 'admin'
+  role           String   @default("technologist") // 'phlebotomist' | 'reception_clerk' | 'clinician' | 'technologist' | 'pathologist' | 'lab_manager' | 'admin'
   facilityId     String   // home facility — used as the default choice when more than one is authorized
   facility       Facility @relation(fields: [facilityId], references: [id])
   facilityAccess UserFacilityAccess[]
@@ -226,6 +232,7 @@ model Patient {
   dob            String
   sex            String
   address        String?
+  nameDhivehi    String? // printed under the English name on reports, when known
   homeFacilityId String?
   homeFacility   Facility? @relation(fields: [homeFacilityId], references: [id])
 
@@ -294,6 +301,26 @@ model Order {
 
   tests     OrderTest[]
   specimens Specimen[]
+  handovers ReportHandover[]
+}
+
+// Each time a printed report leaves the ordering facility: who received it (name and a contact
+// number) and who handed it over, when. A reprint of a report already handed out is its own row,
+// with no receiver. Names are snapshots, like every other actor name.
+model ReportHandover {
+  id            String   @id
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  facilityId    String   // the facility that handed it out
+  kind          String   // 'handover' | 'reprint'
+  receiverName  String?
+  receiverPhone String?
+  handedBy      String
+  handedById    String?
+  handedAt      DateTime @default(now())
+
+  @@index([orderId])
+  @@index([facilityId, handedAt])
 }
 
 // One row per physical tube/bottle. Each gets its own unique barcode (specimenNumber) — that's

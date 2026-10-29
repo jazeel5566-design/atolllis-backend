@@ -1,4 +1,4 @@
-// Test fixtures on the dev branch: four accounts, one patient and the memos each scenario orders
+// Test fixtures on the dev branch: test accounts, one patient and the memos each scenario orders
 // against, all marked "ZZ Test" / ZZTEST so nobody mistakes them for real records, and all removed
 // again afterwards. Catalog tests are picked from the real catalog, never invented.
 require('dotenv').config();
@@ -40,14 +40,15 @@ function quietValue(t) {
 
 async function pickCatalogTests() {
   const plain = { isCulture: false, active: true };
-  const hcLocal = await prisma.testDefinition.findFirst({ where: { ...plain, minTier: 'health_centre' }, include: { refRanges: true } });
+  const hcLocal = await prisma.testDefinition.findFirst({ where: { ...plain, minTier: 'health_centre' }, include: { refRanges: true }, orderBy: { code: 'asc' } });
+  const hcLocal2 = hcLocal && await prisma.testDefinition.findFirst({ where: { ...plain, minTier: 'health_centre', code: { not: hcLocal.code } }, include: { refRanges: true }, orderBy: { code: 'asc' } });
   const regional = await prisma.testDefinition.findFirst({ where: { ...plain, minTier: 'regional' }, include: { refRanges: true }, orderBy: { code: 'asc' } });
   const critical = await prisma.testDefinition.findFirst({ where: { ...plain, criticalHigh: { not: null } }, include: { refRanges: true } });
   const ranged = await prisma.testDefinition.findMany({ where: { ...plain, refRanges: { some: { sex: 'Any', ageUnit: 'Y', ageMin: { lte: 46 }, ageMax: { gte: 46 } } } }, include: { refRanges: true } });
   const amendable = ranged.find(t => t.criticalHigh == null) || ranged[0];
-  const missing = Object.entries({ hcLocal, regional, critical, amendable }).filter(([, v]) => !v).map(([k]) => k);
+  const missing = Object.entries({ hcLocal, hcLocal2, regional, critical, amendable }).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) throw new Error(`The dev catalog has no test suitable for: ${missing.join(', ')}`);
-  return { hcLocal, regional, critical, amendable };
+  return { hcLocal, hcLocal2, regional, critical, amendable };
 }
 
 async function setup() {
@@ -64,7 +65,7 @@ async function setup() {
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   const accounts = {
     hc: [hc, 'pathologist'], atoll: [atoll, 'pathologist'], regional: [regional, 'pathologist'], phleb: [hc, 'phlebotomist'],
-    manager: [hc, 'lab_manager'], admin: [hc, 'admin'],
+    manager: [hc, 'lab_manager'], admin: [hc, 'admin'], clerk: [hc, 'reception_clerk'], clinician: [hc, 'clinician'],
   };
   const tokens = {};
   for (const [key, [facility, role]] of Object.entries(accounts)) {

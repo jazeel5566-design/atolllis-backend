@@ -36,3 +36,30 @@ test('critical escalation: pending, overdue at 30 minutes, escalated at 60', () 
   assert.equal(minutesSince('2026-10-26T10:00:00Z', now), 45);
   assert.equal(minutesSince('2026-10-26T11:00:00Z', now), 0); // a clock ahead never goes negative
 });
+
+const { reportState, lastCertifiedAt } = require('../../src/utils/report-status');
+const { visualOrder, cleanDhivehi } = require('../../src/utils/dhivehi');
+
+test('a report is final only when every test is finished, preliminary when some are', () => {
+  const t = status => ({ status });
+  assert.equal(reportState([t('received'), t('interfaced')]), 'in_lab');
+  assert.equal(reportState([t('completed'), t('processing')]), 'preliminary');
+  assert.equal(reportState([t('completed'), t('rejected'), t('deselected')]), 'final');
+  assert.equal(reportState([t('rejected')]), 'in_lab'); // nothing to report
+  const a = new Date('2026-10-28T08:00:00Z'), b = new Date('2026-10-28T09:00:00Z');
+  assert.equal(lastCertifiedAt([{ status: 'completed', validatedAt: a }, { status: 'completed', validatedAt: b }, { status: 'interfaced', validatedAt: null }]), b);
+});
+
+test('Dhivehi is drawn right to left, each letter keeping its vowel sign, numbers left as they are', () => {
+  // ދި ވެ (dhi, ve) becomes ވެ ދި for drawing; "2026" stays "2026".
+  assert.equal(visualOrder('ދިވެ'), 'ވެދި');
+  assert.equal(visualOrder('ދި 2026'), '2026 ދި');
+  assert.equal(visualOrder('(ދ)'), '(ދ)');
+});
+
+test('a Dhivehi field must be Thaana; empty means none', () => {
+  assert.equal(cleanDhivehi('  ', 'Name', 50), null);
+  assert.equal(cleanDhivehi(' ދި  ވެ ', 'Name', 50), 'ދި ވެ');
+  assert.throws(() => cleanDhivehi('English', 'Name', 50), /Thaana/);
+  assert.throws(() => cleanDhivehi('ދ'.repeat(51), 'Name', 50), /too long/);
+});

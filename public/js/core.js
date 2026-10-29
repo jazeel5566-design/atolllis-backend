@@ -7,7 +7,7 @@ const DEFAULT_API_BASE = (location.protocol === 'file:')
   : (location.origin + '/api');
 const TIER_SHORT = {health_centre:'Health Centre', atoll:'Atoll Hospital', regional:'Regional Hospital'};
 const TIER_CLASS = {health_centre:'tier-health_centre', atoll:'tier-atoll', regional:'tier-regional'};
-const ROLE_LABELS = {phlebotomist:'Phlebotomist', technologist:'Technologist', pathologist:'Pathologist', lab_manager:'Lab Manager', admin:'Administrator'};
+const ROLE_LABELS = {phlebotomist:'Phlebotomist', reception_clerk:'Reception Clerk', clinician:'Clinician', technologist:'Technologist', pathologist:'Pathologist', lab_manager:'Lab Manager', admin:'Administrator'};
 // Which capabilities each role has is editable (Settings → Users → Role Permissions), so this is
 // fetched fresh at login rather than fixed in this file — roleCapabilitiesCache is the live copy.
 let roleCapabilitiesCache = { roles: [], allCapabilities: [] };
@@ -18,16 +18,20 @@ function hasCapability(cap){
 }
 
 // `needs` lists capabilities, any one of which makes the section useful to a role; sections without
-// it are for everyone. A role is not shown a section it cannot act in.
+// it are for everyone. A role is not shown a section it cannot act in. `icon` names a drawing in
+// NAV_ICONS (shell.js).
+const LAB_WORK = ['collect','accept','process','certify'];
 const NAV_ITEMS = [
-  {id:'processflow', label:'Process Flow'},
-  {id:'dashboard', label:'Dashboard'},
-  {id:'collection', label:'Sample Collection', needs:['collect']},
-  {id:'acceptance', label:'Sample Acceptance', needs:['accept']},
-  {id:'processing', label:'Result Processing', needs:['process','certify']},
-  {id:'reports', label:'Reports'},
-  {id:'settings', label:'Settings'},
+  {id:'dashboard', label:'My work', icon:'home'},
+  {id:'processflow', label:'Process flow', icon:'flow', needs:LAB_WORK},
+  {id:'collection', label:'Collection', icon:'tube', needs:['collect']},
+  {id:'acceptance', label:'Acceptance', icon:'check', needs:['accept']},
+  {id:'processing', label:'Processing', icon:'flask', needs:['process','certify']},
+  {id:'reports', label:'Reports', icon:'report', needs:['view_reports']},
+  {id:'patients', label:'Patients', icon:'folder', needs:['view_patient_records']},
+  {id:'settings', label:'Settings', icon:'gear'},
 ];
+function isLabStaff(){ return LAB_WORK.some(hasCapability); }
 function navItemsForRole(){ return NAV_ITEMS.filter(n=>!n.needs || n.needs.some(hasCapability)); }
 
 const STATUS_META = {
@@ -194,7 +198,14 @@ const api = {
   deleteAntibiotic: (id) => apiRequest(`/antibiotics/${id}`, {method:'DELETE'}),
   cultureResult: (orderId,code) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`),
   saveCultureResult: (orderId,code,data) => apiRequest(`/tests/${orderId}/${encodeURIComponent(code)}/culture-result`, {method:'POST', body:data}),
-  history: (query) => apiRequest(`/history?query=${encodeURIComponent(query)}`),
+  reportDesk: (query) => apiRequest(`/reports/desk${query?('?query='+encodeURIComponent(query)):''}`),
+  report: (orderId) => apiRequest(`/reports/${encodeURIComponent(orderId)}`),
+  recordHandover: (orderId, receiverName, receiverPhone) => apiRequest(`/reports/${encodeURIComponent(orderId)}/handover`, {method:'POST', body:{receiverName, receiverPhone}}),
+  recordReprint: (orderId) => apiRequest(`/reports/${encodeURIComponent(orderId)}/reprint`, {method:'POST'}),
+  patientRecords: (query) => apiRequest(`/patients/records?query=${encodeURIComponent(query)}`),
+  patientFolder: (id) => apiRequest(`/patients/${encodeURIComponent(id)}/folder`),
+  setPatientDhivehiName: (id, nameDhivehi) => apiRequest(`/patients/${encodeURIComponent(id)}/dhivehi-name`, {method:'PUT', body:{nameDhivehi}}),
+  setFacilityDhivehi: (id, data) => apiRequest(`/facilities/${encodeURIComponent(id)}/dhivehi`, {method:'PUT', body:data}),
 };
 
 /* ============================= HELPERS ============================= */

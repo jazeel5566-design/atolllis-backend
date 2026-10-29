@@ -1,12 +1,13 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth, requireCapability } = require('../middleware/auth');
+const { requireAuth, requireCapability, userHasCapability } = require('../middleware/auth');
 const { uid } = require('../utils/id');
 const { needsReferral, referralTarget } = require('../utils/domain');
 const { logAudit } = require('../utils/audit');
 const { inTransaction } = require('../utils/transaction');
 const { nextSpecimenNumber } = require('../utils/specimen-number');
 const { HttpError } = require('../utils/http-error');
+const { reportState, withoutResult } = require('../utils/report-status');
 
 router.use(requireAuth);
 
@@ -16,8 +17,9 @@ router.use(requireAuth);
 // the granular "interfaced" status is masked as "processing" for anyone but the performing lab —
 // pre-validation results are never exposed outside the lab that produced them. Specimens (each a
 // physical tube with its own barcode) are filtered the same way — a specimen is only shown if it
-// contains at least one test this viewer can see.
-function mapOrderForViewer(order, viewerFacilityId, amendedIds) {
+// contains at least one test this viewer can see. A viewer without view_patient_records
+// (seeUnfinished false: reception, phlebotomists) gets no result values until the report is final.
+function mapOrderForViewer(order, viewerFacilityId, amendedIds, seeUnfinished = true) {
   const own = order.orderingFacilityId === viewerFacilityId;
   const tests = order.tests
     .filter(t => own || (t.referred && t.performingFacilityId === viewerFacilityId))
@@ -30,7 +32,8 @@ function mapOrderForViewer(order, viewerFacilityId, amendedIds) {
   const specimens = (order.specimens || []).filter(s =>
     (order.tests || []).some(t => t.specimenId === s.id && visibleTestIds.has(t.id))
   );
-  return { ...order, tests, specimens, viewerIsOrigin: own };
+  const shown = seeUnfinished || reportState(tests) === 'final' ? tests : tests.map(withoutResult);
+  return { ...order, tests: shown, specimens, viewerIsOrigin: own };
 }
 
 // Ids of amended tests among the orders this facility can see. Amendments are rare, so this stays
@@ -51,8 +54,9 @@ router.get('/', async (req, res) => {
   });
 
   const amendedIds = await amendedTestIds({ OR: [{ orderingFacilityId: fid }, { tests: { some: { performingFacilityId: fid } } }] });
+  const seeUnfinished = await userHasCapability(req.user, 'view_patient_records');
   let mapped = orders
-    .map(o => mapOrderForViewer(o, fid, amendedIds))
+    .map(o => mapOrderForViewer(o, fid, amendedIds, seeUnfinished))
     .filter(o => o.viewerIsOrigin || o.tests.length > 0);
 
   const stageFilters = {
@@ -76,7 +80,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { tests: true, patient: true, specimens: true, ward: true } });
   if (!order) return res.status(404).json({ error: 'Not found' });
-  const mapped = mapOrderForViewer(order, req.user.facilityId, order ? await amendedTestIds({ id: order.id }) : null);
+  const mapped = mapOrderForViewer(order, req.user.facilityId, await amendedTestIds({ id: order.id }), await userHasCapability(req.user, 'view_patient_records'));
   if (!mapped.viewerIsOrigin && mapped.tests.length === 0) {
     return res.status(403).json({ error: 'Not visible to this facility' });
   }
@@ -92,8 +96,8 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
 
   // A memo already fetched is shown again only to the facility that fetched it — anyone else would
   // otherwise see another facility's patient just by typing a memo number.
-  const fetchedBefore = order => (order.orderingFacilityId === req.user.facilityId
-    ? res.json(mapOrderForViewer(order, req.user.facilityId))
+  const fetchedBefore = async order => (order.orderingFacilityId === req.user.facilityId
+    ? res.json(mapOrderForViewer(order, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')))
     : res.status(409).json({ error: `Memo "${memoNumber}" has already been fetched by another facility.` }));
 
   const existing = await prisma.order.findUnique({ where: { memoNumber }, include: ORDER_INCLUDE });
@@ -154,7 +158,7 @@ router.post('/import', requireCapability('collect'), async (req, res) => {
     return fetchedBefore(await prisma.order.findUnique({ where: { memoNumber }, include: ORDER_INCLUDE }));
   }
   await logAudit(req.user, { action: 'memo_imported', entityType: 'Order', entityId: order.id, details: `Fetched memo ${memo.memoNumber} for ${memo.patientName}` });
-  res.status(201).json(mapOrderForViewer(order, req.user.facilityId));
+  res.status(201).json(mapOrderForViewer(order, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')));
 });
 
 // Cancel a memo that hasn't been collected yet.
@@ -269,7 +273,7 @@ router.post('/:id/collect', requireCapability('collect'), async (req, res) => {
 
   const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'collect', entityType: 'Order', entityId: id, details: `Collected memo ${order.memoNumber} — ${full.specimens.length} specimen(s)` });
-  res.json(mapOrderForViewer(full, req.user.facilityId));
+  res.json(mapOrderForViewer(full, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')));
 });
 
 // Draws a fresh specimen for specific tests on an already-collected order — either tests that were
@@ -297,7 +301,7 @@ router.post('/:id/recollect', requireCapability('collect'), async (req, res) => 
 
   const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'recollect', entityType: 'Order', entityId: id, details: `Recollected rejected test(s) for memo ${order.memoNumber}` });
-  res.json(mapOrderForViewer(full, req.user.facilityId));
+  res.json(mapOrderForViewer(full, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')));
 });
 
 // ---------- 3. Referral (assigned and sent from Collection) ----------
@@ -334,7 +338,7 @@ router.post('/:id/refer', requireCapability('collect'), async (req, res) => {
 
   const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   await logAudit(req.user, { action: 'refer', entityType: 'Order', entityId: id, details: `Referred memo ${order.memoNumber} to ${Array.from(targetNames).join(' & ')}` });
-  res.json({ order: mapOrderForViewer(full, req.user.facilityId), referredTo: Array.from(targetNames) });
+  res.json({ order: mapOrderForViewer(full, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')), referredTo: Array.from(targetNames) });
 });
 
 // ---------- 4. Sample Acceptance moved to specimens.js — accept/reject is per specimen now ----------
@@ -349,7 +353,7 @@ router.post('/:id/receive-referral', requireCapability('process'), async (req, r
   const full = await prisma.order.findUnique({ where: { id }, include: ORDER_INCLUDE });
   if (!full) return res.status(404).json({ error: 'Not found' });
   await logAudit(req.user, { action: 'receive_referral', entityType: 'Order', entityId: id, details: `Received referred sample for memo ${full.memoNumber}` });
-  res.json(mapOrderForViewer(full, req.user.facilityId));
+  res.json(mapOrderForViewer(full, req.user.facilityId, null, await userHasCapability(req.user, 'view_patient_records')));
 });
 
 module.exports = router;

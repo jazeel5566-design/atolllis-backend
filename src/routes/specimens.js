@@ -1,12 +1,13 @@
 const router = require('express').Router();
 const prisma = require('../db');
-const { requireAuth, requireCapability } = require('../middleware/auth');
+const { requireAuth, requireCapability, userHasCapability } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { uid } = require('../utils/id');
 const { resolveRejectionReason } = require('../utils/rejection');
 const { amendmentsFor, WITHDRAWN_TEXT } = require('../utils/amendment');
 const { inTransaction } = require('../utils/transaction');
 const { HttpError } = require('../utils/http-error');
+const { withoutResult } = require('../utils/report-status');
 
 router.use(requireAuth);
 
@@ -146,7 +147,8 @@ router.get('/:specimenNumber', async (req, res) => {
     collectedAt: specimen.collectedAt,
     isOrigin,
     patient: specimen.order.patient,
-    tests,
+    // Results are for lab staff and clinicians; anyone else scanning a tube sees only where it is.
+    tests: (await userHasCapability(req.user, 'view_patient_records')) ? tests : tests.map(t => ({ ...withoutResult(t), previous: null, amendments: [] })),
   });
 });
 

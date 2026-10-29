@@ -5,27 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AtollLIS — Laboratory Information System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Thaana:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div class="login-screen" id="loginScreen"></div>
 <div id="app">
   <header class="topbar" id="topbar">
+    <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
     <div class="brand">
       <div class="mark">Atoll<span>LIS</span></div>
       <div id="topbarFacility"></div>
     </div>
-    <div class="topbar-main" id="topbarMain">
-      <nav id="nav"></nav>
-      <div id="topbarUser"></div>
-    </div>
-    <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">☰</button>
+    <form class="scanbar" id="scanbar" onsubmit="event.preventDefault();submitScan();" role="search">
+      <input id="scanField" autocomplete="off" spellcheck="false" placeholder="Scan or type a memo, specimen or hospital number (F2)" aria-label="Scan or type a memo, specimen or hospital number">
+    </form>
+    <div id="topbarUser"></div>
   </header>
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
-  <main>
-    <div class="content" id="content"></div>
-  </main>
+  <div class="shell">
+    <nav id="nav" class="rail" aria-label="Sections"></nav>
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    <main>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
 </div>
 <div id="modalRoot"></div>
 <div id="confirmRoot"></div>
@@ -41,6 +44,7 @@
 <script src="js/processing.js"></script>
 <script src="js/result-review.js"></script>
 <script src="js/reports.js"></script>
+<script src="js/patients.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/catalog.js"></script>
 <script src="js/init.js"></script>
